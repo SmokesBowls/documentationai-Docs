@@ -1,0 +1,522 @@
+Yeah, that’s the vein. You just described the missing contract.
+
+Let’s nail it properly so AP isn’t guessing ever.
+
+
+---
+
+ZON4D–AP TEMPORAL EVENT QUERY PROTOCOL (Micro-Spec)
+
+This extends what we already laid down (events + queries + frames) and locks three things:
+
+1. Canonical event metadata shape
+
+
+2. Rigid event-type typing (no fuzzy strings)
+
+
+3. Deterministic rule-window scanning & time precision
+
+
+
+Think of this as the “syscall ABI” between AP and ZON4D.
+
+
+---
+
+1. Canonical Event Metadata Structure
+
+Events in ZON4D are not arbitrary blobs. They must follow a fixed envelope, both in storage (inside the track) and over the wire (returned to AP).
+
+1.1 Event Envelope
+
+Every event is a JSON-like object with this exact shape:
+
+{
+  "t":        0.75,                 // float, in track’s time domain
+  "eid":      "fx_steam_hiss_01",   // string, unique within track (optional but recommended)
+  "type":     "AUDIO_CUE",          // string enum, see 1.2
+  "subtype":  "PIPE_HISS",          // optional, narrower classification
+  "channel":  "sfx.environment",    // namespaced logical channel
+
+  "payload": {                      // strongly-typed payload
+    "clip_id": "steam_hiss",
+    "volume": 0.8,
+    "pitch":  1.05,
+    "loop":   false
+  },
+
+  "tags":     ["ambient", "steam"], // optional labels
+  "meta": {                         // strictly structured, not junk drawer
+    "priority": 3,
+    "blocking": false
+  }
+}
+
+Required fields:
+
+t : float – event time in track-local time.
+
+type : string – event type enum.
+
+payload : object – schema-bound data (no arbitrary junk).
+
+
+Strongly recommended:
+
+eid : string – event id / handle.
+
+channel : string – routing key for who should care.
+
+tags : list<string> – classification, but never parsed for logic.
+
+meta : object – extra structured info; not logic-critical.
+
+
+1.2 Event Type Registry (Global)
+
+To avoid “string guessing” on type, we define a global registry of event types, versioned and shared between ZON4D and AP.
+
+Example slice:
+
+{
+  "EVENT_TYPES": {
+    "AUDIO_CUE": {
+      "payload_schema": "audio_cue_v1"
+    },
+    "DIALOGUE_LINE": {
+      "payload_schema": "dialogue_line_v1"
+    },
+    "STATE_FLAG_SET": {
+      "payload_schema": "state_flag_set_v1"
+    },
+    "CAMERA_SHAKE": {
+      "payload_schema": "camera_shake_v1"
+    },
+    "LOGIC_MARKER": {
+      "payload_schema": "logic_marker_v1"
+    }
+  }
+}
+
+AP never introspects payload blindly. It looks up the payload_schema for type and knows exactly what fields and types to expect.
+
+
+---
+
+2. Per-Type Payload Schemas
+
+Each payload_schema is a ZW-H schema (or equivalent) that defines the payload structure.
+
+Example: audio_cue_v1:
+
+%type audio_cue_v1
+  {fields [
+    {clip_id {type string required}}
+    {volume  {type float min 0.0 max 1.0 default 1.0}}
+    {pitch   {type float min 0.5 max 2.0 default 1.0}}
+    {loop    {type bool default false}}
+  ]}
+
+Example: logic_marker_v1:
+
+%type logic_marker_v1
+  {fields [
+    {id        {type string required}}
+    {category  {type enum values [emotion_threshold story_beat combat_phase] required}}
+    {value     {type any optional}}
+  ]}
+
+Rule:
+Any event ZON4D emits must:
+
+Use a type present in the registry.
+
+Have a payload that validates against that type’s schema.
+
+If validation fails → the ZON4D build is invalid, not runtime “best effort.”
+
+
+AP can then:
+
+Switch on type.
+
+Trust payload to match the schema.
+
+Never parse free strings.
+
+
+
+---
+
+3. Event Arrays in Tracks (Canonical Form)
+
+Within a ZON4D track, events are stored as a sorted list by t:
+
+{
+  "track_id": "door_01/logic_events",
+  "kind": "EVENTS",
+  "time_domain": "engine",
+  "events": [
+    { "t": 0.20, "type": "STATE_FLAG_SET", ... },
+    { "t": 0.40, "type": "AUDIO_CUE",      ... },
+    { "t": 0.65, "type": "LOGIC_MARKER",   ... }
+  ]
+}
+
+Rules:
+
+Sorted ascending by t.
+
+Multiple events at same t are allowed; order is stable and deterministic.
+
+No other structure (no bare arrays, no polymorphic nonsense).
+
+
+
+---
+
+4. Rule Window Registration (AP → ZON4D)
+
+AP doesn’t just say “give me stuff when you feel like it.”
+It registers explicit windows that ZON4D must scan.
+
+4.1 Window Registration Request
+
+AP asks ZON4D to monitor a track (or track set) over a precise time window:
+
+{
+  "op": "REGISTER_WINDOW",
+  "window_id": "rule_anger_surge_01",
+  "tracks": [
+    "character/emotion/anger",
+    "character/emotion/fear",
+    "character/events/emotion_markers"
+  ],
+  "t_start": 0.60,
+  "t_end":   1.00,
+  "time_domain": "engine",      // or "story" or "explicit"
+  "modes": {
+    "scan_events":      true,
+    "scan_samples":     true,
+    "scan_derivatives": true
+  },
+  "resolution": {
+    "sample_step": 0.01,        // optional for sampling; null means “only events + edges”
+    "derivative_step": 0.001    // optional; must match interpolation spec
+  },
+  "consistency": "STRICT"       // or FRAME/EVENT/LOOSE, from Section 24
+}
+
+ZON4D returns:
+
+{
+  "status": "ok",
+  "window_id": "rule_anger_surge_01"
+}
+
+This is just registration – no data yet. It tells ZON4D:
+
+> “This rule cares about this interval, these tracks, these data types.”
+
+
+
+4.2 Window Scan Invocation
+
+When AP or Kernel wants actual data for that window, it calls:
+
+{
+  "op": "SCAN_WINDOW",
+  "window_id": "rule_anger_surge_01"
+}
+
+ZON4D returns a deterministic bundle:
+
+{
+  "status": "ok",
+  "window_id": "rule_anger_surge_01",
+  "time_domain": "engine",
+  "t_start": 0.60,
+  "t_end":   1.00,
+
+  "tracks": {
+    "character/emotion/anger": {
+      "kind": "SCALAR",
+      "interpolation": "cubic",
+      "samples": [
+        { "t": 0.60, "value": 0.20 },
+        { "t": 0.70, "value": 0.40 },
+        { "t": 0.80, "value": 0.65 },
+        { "t": 0.90, "value": 0.85 },
+        { "t": 1.00, "value": 0.95 }
+      ],
+      "derivatives": [
+        { "t": 0.60, "value": 0.5 },
+        { "t": 1.00, "value": 0.1 }
+      ]
+    },
+
+    "character/events/emotion_markers": {
+      "kind": "EVENTS",
+      "events": [
+        {
+          "t": 0.73,
+          "type": "LOGIC_MARKER",
+          "payload": {
+            "id": "anger_threshold_cross",
+            "category": "emotion_threshold",
+            "value": 0.7
+          }
+        }
+      ]
+    }
+  }
+}
+
+AP can now:
+
+Decide if anger crossed threshold 0.7 inside [0.6, 1.0].
+
+Trigger rules once, deterministically.
+
+
+
+---
+
+5. Time Precision & Deterministic Math
+
+You explicitly called this out: microsecond reliability and interpolation consistency.
+
+5.1 Time Precision
+
+Spec:
+
+All t, t_start, t_end, and sample times are defined as 64-bit floats (IEEE-754).
+
+Intervals are closed on the left, open on the right by default:
+
+[t_start, t_end)
+
+That avoids double-firing exactly at boundaries across frames.
+
+
+
+This must be explicit:
+
+{
+  "interval_type": "LEFT_CLOSED_RIGHT_OPEN"
+}
+
+So:
+
+Event at t = 1.0 is:
+
+Included in [0.6, 1.0)? → No.
+
+Included in [1.0, 1.4)? → Yes.
+
+
+
+You can override per window, but default must be fixed.
+
+5.2 Interpolation Mode & Determinism
+
+Each numeric track declares its interpolation mode:
+
+{
+  "interpolation": "STEP | LINEAR | CUBIC"
+}
+
+Rule:
+
+For LINEAR, interpolation formula is fully specified (no implementation variance).
+
+For CUBIC, you must define:
+
+Spline type (e.g., Catmull–Rom with specific tension, or Hermite).
+
+Boundary conditions (clamp, flat, etc.).
+
+
+For STEP, value is constant between keys; derivative is:
+
+0 away from discontinuities.
+
+UNDEFINED exactly at the step edge.
+
+
+
+5.3 Derivative Query Contract
+
+When AP asks for derivatives (you mentioned step edge cases):
+
+Derivative response uses the same envelope as other queries:
+
+{
+  "status": "ok",
+  "track_id": "character/emotion/anger",
+  "query_kind": "DERIVATIVE",
+  "t": 0.73,
+  "value": 1.25,
+  "meta": {
+    "interpolation": "CUBIC",
+    "near_key": 0.70
+  }
+}
+
+If derivative is undefined at t (e.g., step discontinuity):
+
+{
+  "status": "error",
+  "track_id": "character/emotion/anger",
+  "query_kind": "DERIVATIVE",
+  "t": 0.70,
+  "code": "DERIVATIVE_UNDEFINED",
+  "value": null,
+  "meta": {
+    "reason": "STEP_DISCONTINUITY",
+    "side": "LEFT | RIGHT | AMBIGUOUS"
+  }
+}
+
+AP must handle this explicitly – no guessing.
+
+
+---
+
+6. Deterministic Window Scanning Rules
+
+To get your “exact same result every time” guarantee:
+
+1. Event inclusion
+
+Event is included if its t falls inside the window interval policy:
+
+Default: [t_start, t_end).
+
+
+
+
+2. Sampling grid
+
+If sample_step is provided:
+
+Samples at t_i = t_start + i * sample_step,
+for all t_i < t_end, with float math specified (no ad-hoc rounding).
+
+
+No random “extra” sampling.
+
+
+
+3. Ordering
+
+Within a track:
+
+Events sorted by t, then stable by encoded order.
+
+
+Across tracks:
+
+AP is not promised any cross-track ordering; ordering is per-track.
+
+
+
+
+4. Idempotence
+
+The same SCAN_WINDOW on the same ZON4D, same window, same version → exact same JSON output (modulo ordering of map keys).
+
+
+
+
+
+---
+
+7. Example: Your Emotion Rule Window
+
+Your earlier AP rule:
+
+> “If emotion crosses ‘anger’ at t ≥ 0.6, escalate dialogue”
+
+
+
+With this spec, the flow is:
+
+1. AP registers window:
+
+
+
+{
+  "op": "REGISTER_WINDOW",
+  "window_id": "rule_anger_cross_01",
+  "tracks": [
+    "character/emotion/anger",
+    "character/events/emotion_markers"
+  ],
+  "t_start": 0.60,
+  "t_end": 1.00,
+  "time_domain": "engine",
+  "modes": {
+    "scan_events": true,
+    "scan_samples": true
+  },
+  "consistency": "STRICT"
+}
+
+2. Later, AP (or Kernel) calls SCAN_WINDOW.
+
+
+3. ZON4D returns:
+
+Samples of anger.
+
+Any LOGIC_MARKER or event indicating threshold crossing.
+
+
+
+4. AP uses event type + payload schema:
+
+
+
+{
+  "type": "LOGIC_MARKER",
+  "payload": {
+    "id": "anger_threshold_cross",
+    "category": "emotion_threshold",
+    "value": 0.7
+  }
+}
+
+No string parsing. No “is the word ‘anger’ in this string?”
+Just: type + schema + value.
+
+
+---
+
+8. Why This Locks It as an Engineering Contract
+
+Event structure is fixed and validated → no surprises at runtime.
+
+Event types are registry-based → no fuzzy parsing.
+
+Payloads are schema-bound → AP can pattern-match with confidence.
+
+Windows are explicit → no hidden scanning, no missing events.
+
+Time precision, interval rules, and interpolation are spec’d → one engine, one truth.
+
+ERROR codes for undefined derivatives and missing ZON4D → no silent lies.
+
+
+This is exactly what you described:
+
+> “the most important step to making ZON-4D a hardened engineering contract.”
+
+
+
+If you want, next we can:
+
+Tighten this into a formal “ZON4D-AP TEMPORAL QUERY SPEC v0.1” doc, or
+
+Drill one level deeper on event-type taxonomy (e.g., EMOTION_EVENT vs STATE_CHANGE vs AUDIO vs VFX) so your AP rules have a clean ontology to sit on.

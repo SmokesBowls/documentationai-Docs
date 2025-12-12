@@ -1,0 +1,359 @@
+Perfect — we stay on the numbered path, no detours, no side quests.
+You locked Section 25, so the next in sequence is:
+
+SECTION 26 — Cross-Domain Conflict Resolution Between AP and ZON4D
+
+Here it is, clean, hard, numbered, and ready to drop into the master spec.
+
+
+---
+
+26. Cross-Domain Conflict Resolution (AP ↔ ZON4D)
+
+Status: Frozen
+Depends On:
+
+ZW-H v0.1
+
+ZON4D v0.1
+
+AP Core v1.1
+
+Snapshot Provider Spec (Section 25)
+
+
+
+---
+
+26.0 Purpose
+
+This section defines the formal legal hierarchy that governs contradictions between:
+
+AP (logical rules & schema-validated state)
+
+ZON4D (temporal curves, keyframes, continuity)
+
+
+Because ZON4D is temporal-first and AP is schema-first, conflicts are inevitable.
+
+This section makes resolution deterministic, universal, and unbreakable.
+
+
+---
+
+26.1 The Iron Rule: Schema Dominance
+
+> If a schema requirement contradicts a temporal inference, the schema wins.
+Always. Without exception.
+
+
+
+Rationale:
+Schemas represent structural truth.
+4D represents temporal behavior.
+
+Temporal behavior is allowed inside structural truth — not above it.
+
+
+---
+
+26.2 The Precedence Chain (Canonical Order)
+
+When determining the value of a field at time t:
+
+The engine MUST evaluate in this exact order:
+
+1. Explicit Keyframe (most authoritative)
+
+If the field exists in keyframe t, return it.
+
+2. Schema Default
+
+If keyframe omits it, try the schema’s {default}.
+
+3. Temporal Fallback (least authoritative)
+
+Only if no explicit keyframe AND no schema default.
+
+
+---
+
+Why this ordering is mandatory:
+
+If temporal fallback comes before schema default,
+it turns required fields into optional fields (catastrophic).
+
+
+---
+
+26.3 Conflict Types and Outcomes
+
+a) Missing required field in keyframe
+
+Use schema default? → Yes
+
+If no default? → Hard error (“temporal cannot omit required field”)
+
+
+b) Missing optional field
+
+Use schema default or fallback (per precedence) → Allowed
+
+
+c) Illegal type at keyframe
+
+AP will never see this; ZON4D validator must fail early.
+
+
+d) Interpolated value violates schema constraint
+
+Example:
+
+Schema: health {type int min 0 max 100}
+
+Cubic interpolation spikes to 137
+
+
+Result:
+Resolved snapshot clamps to schema max (100) OR errors — depends on Mode (see 26.7).
+
+e) Temporal continuity contradicts schema domain
+
+Example:
+
+Enum emotion transitions produce value "rage++" via smoothing error.
+
+
+Result:
+Immediate validation failure at snapshot resolution. AP never sees invalid symbol.
+
+
+---
+
+26.4 Formal Conflict Table
+
+Conflict	Example	Resolution
+
+Missing required field	{position} missing	Schema default or hard error
+Missing optional field	{mood} absent	Schema default or fallback
+Invalid interpolation result	cubic → 5.6 for {type int}	Clamp or error
+Enum out of domain	"ecstasy" for allowed [joy, fear]	Hard error
+Temporal fallback contradicts schema	fallback gives wrong type	Hard error
+Missing keyframe for required block	entire {stats} block missing	Hard error
+
+
+
+---
+
+26.5 The Non-Negotiable Law of AP Purity
+
+AP cannot receive:
+
+partial objects
+
+unresolved fallbacks
+
+invalid types
+
+unbounded ranges
+
+fractionalized enums
+
+undefined derivatives
+
+illegal discontinuity states
+
+
+If any of those occur during snapshot resolution,
+the Snapshot Provider halts and reports:
+
+TEMPORAL_SCHEMA_CONFLICT
+
+AP never receives the corrupted data.
+
+
+---
+
+26.6 Snapshot Provider Obligations
+
+Snapshot Provider (Section 25) MUST:
+
+✔ Normalize all fields
+
+(no missing fields if schema requires them)
+
+✔ Enforce type and constraint bounds
+
+(before AP touches the values)
+
+✔ Apply fallback only after schema defaults
+
+✔ Provide canonical timestamp evaluation
+
+(interpolation always deterministic)
+
+✔ Return consistent repeatable values
+
+(snapshot(t) == snapshot(t) forever)
+
+
+---
+
+26.7 Configurable Handling Modes
+
+Snapshot Provider may expose three modes
+(set per-schema or per-field):
+
+1. STRICT (default)
+
+Any schema violation → snapshot error.
+
+2. CLAMP
+
+Value outside schema → clamp to {min, max}.
+
+3. SANITIZE
+
+Try to coerce invalid temporal data (enum cleanup, numeric rounding).
+Fails only if impossible.
+
+AP never decides the mode.
+Mode lives in the schema:
+
+{field_name
+   {type float min 0 max 1}
+   {temporal_mode strict} ; or clamp, sanitize
+}
+
+
+---
+
+26.8 Required Cross-Domain Invariants
+
+These invariants can never be broken:
+
+Invariant 1 — ZW-H Defines the Universe
+
+All ZON4D tracks must be validated against ZW-H fields before resolution.
+
+Invariant 2 — Snapshot Validity
+
+Every snapshot must be a fully valid ZW-H object.
+
+Invariant 3 — AP Determinism
+
+Snapshot resolution must be deterministic and side-effect free.
+
+Invariant 4 — Historical Safety
+
+Temporal fallback may never violate required schema structure.
+
+Invariant 5 — Isolation
+
+AP cannot see or influence temporal interpolation mechanics.
+
+
+---
+
+26.9 Implementation Enforcement
+
+Any implementation must satisfy:
+
+Constraint A — No Raw ZON4D to AP
+
+Direct access prohibited.
+
+Constraint B — Precedence Chain Mandatory
+
+All resolvers must follow:
+
+explicit → default → fallback
+
+Constraint C — No Silent Recovery
+
+Any schema violation must be explicit.
+
+Constraint D — Serialization Consistency
+
+A snapshot must be canonical:
+
+stable ordering
+
+stable types
+
+stable clamping behaviors
+
+
+
+---
+
+26.10 Example: Required Field Missing at t=0.6
+
+Schema:
+
+{hp {type int min 0 max 100 required}}
+
+Timeline:
+
+0.0: {hp 80}
+0.3: {hp 60}
+0.6: { }       ; missing!!
+
+Resolution:
+
+1. Keyframe? → absent
+
+
+2. Schema default? → none
+
+
+3. Temporal fallback? → 60
+
+
+
+BUT hp is required → fallback is illegal.
+
+Result:
+
+TEMPORAL_SCHEMA_CONFLICT
+
+AP never sees the object.
+
+
+---
+
+26.11 Summary Statement
+
+> Temporal continuity is a convenience.
+ZW-H structure is the law.
+AP speaks only to lawful state.
+
+
+
+This section guarantees that you will never get nondeterministic, half-valid, or schema-breaking objects leaking into AP.
+
+It preserves the hierarchy:
+
+ZON4D = motion
+
+ZW-H = structure
+
+Snapshot Provider = truth resolution
+
+AP = logic
+
+
+Everything in the engine becomes stable, predictable, analyzable, and replay-safe.
+
+
+---
+
+Ready for Section 27
+
+Next in the number line:
+
+27 — Temporal Error Surfaces & Discontinuity Zones
+
+Want to proceed? Just say:
+
+27

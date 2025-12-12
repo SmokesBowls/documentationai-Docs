@@ -1,0 +1,563 @@
+Good. 19 is where sound stops being “play this .wav” and becomes first-class motion in the same 4D fabric as everything else.
+
+No implementation. Pure spec.
+
+
+---
+
+19 — Audio Envelopes & Sound-as-Motion (ZON4D)
+
+
+---
+
+19.0 Purpose
+
+This section defines how ZON4D represents audio over time as structured, declarative data:
+
+Volume curves
+
+Pitch curves
+
+Filters (lowpass/highpass, EQ bands)
+
+Spatialization (position, radius, spread)
+
+Layering (music, SFX, VO, ambient)
+
+Event hooks tied to audio features (peaks, beats, cue points)
+
+Alignment with visemes and emotion tracks from earlier sections
+
+
+Audio is treated as motion in amplitude/frequency space:
+another set of time-based curves, no special treatment beyond semantics.
+
+
+---
+
+19.1 Core Concepts
+
+1. Audio clip = some sound asset (file, bank, TTS stream, procedural source).
+
+
+2. Audio track = a time-varying wrapper around a clip (volume, pitch, filters, etc).
+
+
+3. Audio bus = a logical grouping (MUSIC, SFX, VO, UI, AMBIENT).
+
+
+4. Audio scene = a set of audio tracks active over a common timeline.
+
+
+5. Audio event = a semantic marker (e.g., “beat_1”, “impact_peak”, “phrase_end”).
+
+
+
+ZON4D stores all the temporal parts (envelopes, curves, events).
+The actual waveform is referenced (not embedded) by ID/path.
+
+
+---
+
+19.2 Canonical Types
+
+19.2.1 Audio Clip Reference
+
+%type audio_clip_ref
+  {fields [
+    {id        {type string required}}       ; logical name, e.g. "door_heavy_open"
+    {source    {type enum values [file bank tts procedural] required}}
+    {path      {type string optional}}       ; "res://audio/doors/heavy_open.ogg"
+    {bank_id   {type string optional}}       ; e.g. FMOD/Wwise bank
+    {tts_id    {type string optional}}       ; link into TTS pipeline
+    {length    {type float optional}}        ; seconds, if known
+  ]}
+
+19.2.2 Audio Envelope Curves
+
+We treat each dimension of sound as a curve:
+
+%type audio_envelope
+  {fields [
+    {curve   {type block<curve1> required}}   ; 1D curve over [0..clip_length or scene_length]
+    {mode    {type enum values [absolute additive multiply] default absolute}}
+  ]}
+
+Typical envelopes:
+
+gain_db  (volume)
+
+pitch_semitones
+
+lowpass_hz
+
+highpass_hz
+
+pan (-1..1)
+
+reverb_send (0..1)
+
+
+19.2.3 Audio Track
+
+%type audio_track
+  {fields [
+    {id         {type string required}}
+    {clip       {type block<audio_clip_ref> required}}
+    {bus        {type enum values [music sfx vo ui ambient] required}}
+    {start_time {type float min 0.0 default 0.0}}   ; in scene timeline
+    {loop       {type bool default false}}
+    {envelopes  {type list<block<audio_envelope_def>> default []}}
+    {events     {type list<block<audio_event_key>> default []}}
+  ]}
+
+Where:
+
+%type audio_envelope_def
+  {fields [
+    {target {type enum values [
+               gain_db
+               pitch_semitones
+               lowpass_hz
+               highpass_hz
+               pan
+               reverb_send
+             ] required}}
+    {envelope {type block<audio_envelope> required}}
+  ]}
+
+%type audio_event_key
+  {fields [
+    {t      {type float min 0.0 required}}
+    {id     {type string required}}          ; "impact_peak", "beat_4", etc.
+    {meta   {type block<any> optional}}      ; free-form metadata (e.g. intensity)
+  ]}
+
+19.2.4 Audio Scene
+
+%type audio_scene
+  {fields [
+    {id        {type string required}}
+    {duration  {type float required}}         ; total scene length in seconds
+    {tracks    {type list<block<audio_track>> default []}}
+  ]}
+
+
+---
+
+19.3 Envelopes as Motion
+
+Instead of thinking “play sound at volume X,” ZON4D thinks:
+
+> At time t, the gain curve evaluated at (t – track.start_time) is G(t).
+The pitch curve gives P(t), filters give F(t)…
+
+
+
+All audio adjustments become curves over time:
+
+19.3.1 Simple Fade In / Fade Out
+
+{audio_envelope_def
+  {target gain_db}
+  {envelope
+    {curve
+      {keys [
+        {keyframe {t 0.0 v -60}}      ; start silent
+        {keyframe {t 0.5 v -6}}       ; fade in over 0.5s
+        {keyframe {t 3.0 v -6}}       ; hold
+        {keyframe {t 4.0 v -60}}      ; fade out at end
+      ]}
+    }
+    {mode absolute}
+  }
+}
+
+19.3.2 Pitch Bend
+
+{audio_envelope_def
+  {target pitch_semitones}
+  {envelope
+    {curve
+      {keys [
+        {keyframe {t 0.0 v 0.0}}
+        {keyframe {t 1.0 v +3.0}} ; slide up 3 semitones
+      ]}
+    }
+    {mode additive}
+  }
+}
+
+
+---
+
+19.4 Sound-as-Motion: Door Example
+
+From earlier motion sections, we had door jaw or angle curves.
+Audio should follow the same timeline and even reference physical motion.
+
+19.4.1 Door SFX Track
+
+{audio_track.door_heavy_open
+  {id "door_heavy_open"}
+  {clip {audio_clip_ref
+    {id "door_heavy_open_clip"}
+    {source file}
+    {path "res://audio/doors/heavy_open.ogg"}
+  }}
+  {bus sfx}
+  {start_time 0.0}
+  {loop false}
+  {envelopes [
+    {audio_envelope_def
+      {target gain_db}
+      {envelope
+        {curve
+          {keys [
+            {keyframe {t 0.0 v -10}}
+            {keyframe {t 0.2 v -4}}
+            {keyframe {t 1.0 v -8}}
+          ]}
+        }
+      }
+    }
+    {audio_envelope_def
+      {target lowpass_hz}
+      {envelope
+        {curve
+          {keys [
+            {keyframe {t 0.0 v 400}}
+            {keyframe {t 0.4 v 8000}}
+          ]}
+        }
+      }
+    }
+  ]}
+  {events [
+    {audio_event_key {t 0.15 id "door_latch_release"}}
+    {audio_event_key {t 0.6  id "door_full_open"}}
+  ]}
+}
+
+Door swing angle from motion curves, audio envelopes aligned by start_time.
+Engine can also derive audio events from motion (e.g., when angle crosses a threshold) but that’s AP/behavior domain; spec just allows explicit events and alignment.
+
+
+---
+
+19.5 Voices, Visemes, and Emotion Sync
+
+We already defined:
+
+Viseme tracks (Section 18)
+
+Emotion tracks (Section 12ish)
+
+Facial animation layers
+
+
+Now audio should line up with those, not fight them.
+
+19.5.1 Voice Track with TTS Source
+
+{audio_track.guard_vo_line_01
+  {id "guard_vo_line_01"}
+  {clip {audio_clip_ref
+    {id "guard_line_01"}
+    {source tts}
+    {tts_id "guard::line01"}
+  }}
+  {bus vo}
+  {start_time 0.0}
+  {envelopes [
+    {audio_envelope_def
+      {target gain_db}
+      {envelope
+        {curve
+          {keys [
+            {keyframe {t 0.0 v -8}}
+            {keyframe {t 0.1 v -3}}
+            {keyframe {t 2.0 v -8}}
+          ]}
+        }
+      }
+    }
+  ]}
+  {events [
+    {audio_event_key {t 0.0  id "line_start"}}
+    {audio_event_key {t 1.9 id "line_end"}}
+  ]}
+}
+
+The viseme tracks for this line share the same timeline:
+0.0 → 2.0 seconds.
+Emotion tracks can cross thresholds (fear↑, anger↑) and drive micro pitch vibrato, tremble, and small gain variations.
+
+
+---
+
+19.6 Audio Events as Triggers
+
+Just like motion events, audio events can drive behavior:
+
+impact → camera shake
+
+beat → light pulse
+
+chorus_start → particles + sky flash
+
+line_end → next dialogue choice
+
+
+Spec says:
+
+%type audio_event_key
+  {fields [
+    {t    {type float min 0.0 required}}
+    {id   {type string required}}
+    {meta {type block<any> optional}}
+  ]}
+
+AP / runtime declares rules like:
+
+{ap_rule
+  {when {audio_event "beat_4"}}
+  {then {action "light_pulse"}}
+}
+
+Spec-wise, audio events are just named temporal markers living on tracks.
+
+
+---
+
+19.7 Spatial Audio as Curves
+
+Sound is also where it is, not just what it sounds like.
+
+19.7.1 Per-Track Spatial Curve
+
+%type audio_spatial_track
+  {fields [
+    {position     {type block<curve3> optional}}   ; world or local space
+    {radius       {type block<curve1> optional}}   ; falloff radius
+    {spread       {type block<curve1> optional}}   ; stereo spread or cone angle
+    {occlusion    {type block<curve1> optional}}   ; 0..1
+  ]}
+
+Extension to audio_track:
+
+{audio_track.door_heavy_open
+  ...
+  {spatial {audio_spatial_track
+    {position {curve
+      {keys [
+        {keyframe {t 0.0 v [0 0 0]}}
+        {keyframe {t 1.0 v [0 0 0]}} ; static door for now
+      ]}
+    }}
+    {radius {curve
+      {keys [
+        {keyframe {t 0.0 v 8.0}}
+      ]}
+    }}
+  }}
+}
+
+Later, we can tie position curve directly to the same entity motion track (temporal binding), but that’s cross-domain semantics, not core ZON4D format.
+
+
+---
+
+19.8 Audio Layering & Busses
+
+19.8.1 Logical Bus
+
+bus on audio_track declares which mix group it hits:
+
+music
+
+sfx
+
+vo
+
+ui
+
+ambient
+
+
+ZON4D doesn’t define bus DSP itself (that’s engine territory), but it ensures:
+
+per-bus gain curves possible
+
+per-bus filters can be represented as higher-level envelopes if needed
+
+
+Example:
+
+%type audio_bus_envelope
+  {fields [
+    {bus     {type enum values [music sfx vo ui ambient] required}}
+    {target  {type enum values [gain_db lowpass_hz highpass_hz] required}}
+    {envelope {type block<audio_envelope> required}}
+  ]}
+
+This lets a scene say: “all SFX fade out over 1s” without touching individual tracks.
+
+
+---
+
+19.9 Edge Cases & Behavior
+
+Edge Case	Spec Behavior
+
+Track length > clip length (non-loop)	Clamp at clip end by default (no implicit stretch).
+Loop = true, but envelopes finite	Envelopes apply mod (t % envelope_length) unless otherwise flagged in future spec.
+Overlapping tracks on same bus	Engine blends linearly; spec stays neutral.
+Missing clip path for source=file	Validation error in ZW-H/ZON validator layer.
+TTS clip length unknown	length optional; runtime determines; envelopes interpreted relative to playback time.
+No gain_db envelope	Default 0 dB (no change).
+Conflicting bus-level and track-level gain	Track gain evaluated, then bus gain; spec doesn’t enforce order but recommends bus last.
+Spatial with no position curve	Sound considered non-spatial (2D mix).
+
+
+
+---
+
+19.10 Canonical Multi-Track Scene Example
+
+You wanted door + sound + event + facial + emotion. Here’s the audio slice of a small in-game moment:
+
+{audio_scene.guard_confrontation
+  {id "guard_confrontation"}
+  {duration 4.0}
+  {tracks [
+
+    ; Ambient wind
+    {audio_track
+      {id "wind_loop"}
+      {clip {audio_clip_ref
+        {id "wind_soft"}
+        {source file}
+        {path "res://audio/ambience/wind_soft.ogg"}
+      }}
+      {bus ambient}
+      {start_time 0.0}
+      {loop true}
+      {envelopes [
+        {audio_envelope_def
+          {target gain_db}
+          {envelope
+            {curve
+              {keys [
+                {keyframe {t 0.0 v -18}}
+                {keyframe {t 4.0 v -16}}
+              ]}
+            }
+          }
+        }
+      ]}
+    }
+
+    ; Door slam
+    {audio_track
+      {id "door_slam"}
+      {clip {audio_clip_ref
+        {id "door_slam_heavy"}
+        {source file}
+        {path "res://audio/doors/slam_heavy.ogg"}
+      }}
+      {bus sfx}
+      {start_time 0.7}
+      {loop false}
+      {envelopes [
+        {audio_envelope_def
+          {target gain_db}
+          {envelope
+            {curve
+              {keys [
+                {keyframe {t 0.0 v -4}}
+                {keyframe {t 0.5 v -10}}
+              ]}
+            }
+          }
+        }
+      ]}
+      {events [
+        {audio_event_key {t 0.1 id "door_impact_peak"}}
+      ]}
+    }
+
+    ; Guard voice line
+    {audio_track
+      {id "guard_vo"}
+      {clip {audio_clip_ref
+        {id "guard_line_get_back"}
+        {source tts}
+        {tts_id "guard::get_back"}  ; aligns to viseme track id
+      }}
+      {bus vo}
+      {start_time 1.0}
+      {envelopes [
+        {audio_envelope_def
+          {target gain_db}
+          {envelope
+            {curve
+              {keys [
+                {keyframe {t 0.0 v -6}}
+                {keyframe {t 0.1 v -3}}
+                {keyframe {t 2.0 v -6}}
+              ]}
+            }
+          }
+        }
+      ]}
+      {events [
+        {audio_event_key {t 0.0 id "vo_start"}}
+        {audio_event_key {t 1.8 id "vo_end"}}
+      ]}
+    }
+  ]}
+}
+
+This:
+
+syncs with motion tracks (door movement),
+
+facial tracks (visemes + fear),
+
+emotion tracks (guard arousal spike),
+
+and AP rules (react on door_impact_peak, vo_end).
+
+
+All pure data, all 4D curves.
+
+
+---
+
+19.11 Summary
+
+Section 19 locks in:
+
+Audio as just another motion domain: gain, pitch, filters, space.
+
+Strong declarative envelopes (no hidden DSP logic).
+
+Scenes and tracks that can live alongside motion/facial/emotion scenes.
+
+Clean hooks for AP rules, TTS, and viseme sync.
+
+Pack-ready structure for ZONB later.
+
+
+
+---
+
+If you want to keep rolling:
+
+20 — Behavior / AP Hooks on ZON4D (how AP reads all these curves and events), or
+
+21 — Environment Curves (wind, temperature, light, gravity) as first-class 4D fields.
+
+
+Pick the next number and we keep carving.

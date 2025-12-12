@@ -1,0 +1,501 @@
+31 — Temporal Syncpoints & Hash Anchors
+
+Status: Design-Frozen
+Depends On:
+
+Section 25 (Snapshot Provider Contract)
+
+Section 26 (Derivative & Window Query Semantics)
+
+Section 27 (Event Windows)
+
+Section 28 (Retcon Protocol)
+
+Section 29 (DAG Temporal Topology)
+
+Section 30 (Predictive Sandbox Isolation)
+
+
+This section creates the time integrity backbone of your entire engine.
+
+This is how EngAIn detects:
+
+drift
+
+corruption
+
+divergence
+
+fork inconsistencies
+
+illegal retcons
+
+missing keyframes
+
+cross-entity desync
+
+predictive mismatches
+
+
+This is the blockchain of your time engine, except actually useful and without bloat.
+
+
+---
+
+31.0 Purpose
+
+Every layer in the system touches time:
+
+ZON4D (temporal truth)
+
+ZW-H (structural truth)
+
+Snapshot Provider
+
+AP Simulation
+
+Predictive Sandbox
+
+Runtime Physics
+
+Entity State Machines
+
+Retcon Engine
+
+
+Without formal sync anchors, the entire system can drift.
+
+This section introduces:
+
+Temporal Hash Anchors
+
+A cryptographically light, deterministic signature of resolved state at a specific timestamp.
+
+Syncpoints
+
+Designated moments in the timeline where all entities converge into a unified, verifiable temporal signature.
+
+Together they form:
+
+The Time Integrity Spine.
+
+
+---
+
+31.1 What Is a Temporal Hash Anchor (THA)?
+
+A Temporal Hash Anchor is a deterministic signature generated for one entity at one time.
+
+Form:
+
+THA = H( entity_id,
+          canonical_fields,
+          temporal_fields_resolved,
+          derivative_values,
+          event_flags,
+          schema_version,
+          continuity_marker )
+
+H is NOT cryptographic.
+It is:
+
+fast
+
+deterministic
+
+architecture-independent
+
+integer-fixed
+
+
+Why?
+
+Because this is not about security.
+This is about falsifiability and continuity validation.
+
+
+---
+
+31.2 What Is a Syncpoint?
+
+A syncpoint is a coordinated timestamp where:
+
+All temporal entities’ hashes are collected
+
+Then combined into one global signature
+
+
+Form:
+
+SyncpointHash(T) = H(THA₁(T), THA₂(T), … THAᴺ(T))
+
+This is the “global truth stamp.”
+
+Use cases:
+
+catching illegal retcons
+
+catching incomplete retcons
+
+detecting divergence from predictive paths
+
+verifying DAG continuity
+
+ensuring all entities use same time seed
+
+validating snapshot correctness
+
+
+
+---
+
+31.3 Syncpoint Schedule
+
+Syncpoints occur at:
+
+1. Major Keyframes
+
+whenever engine commits a large-scale state write
+
+
+
+2. Pre-/Post-Retcon Anchors
+
+critical to detect timeline compliance
+
+
+
+3. Scene Transitions
+
+moving to a new area or chapter
+
+
+
+4. Predictive Sandbox Entry/Exit
+
+to verify AP didn’t corrupt something
+
+
+
+5. Autosave intervals
+
+ensures save files haven’t drifted
+
+
+
+6. Every N seconds of real runtime (configurable)
+
+
+
+
+---
+
+31.4 Syncpoint Integrity Contract
+
+Once computed:
+
+SyncpointHash(T) is immutable.
+
+If a subsystem tries to issue a retcon that breaks the hash chain, it must:
+
+declare a retcon
+
+register retcon metadata
+
+submit to retcon validation
+
+
+Otherwise the engine raises:
+
+TEMPORAL_INTEGRITY_ERROR
+: illegal timeline mutation detected
+
+This is your time SAFETY system.
+
+
+---
+
+31.5 Hash Algorithm (Mandatory Semantics)
+
+The hash must be:
+
+architecture-independent
+
+platform-independent
+
+endianness-stable
+
+deterministic
+
+pure functional
+
+insensitive to map/dict order
+
+
+We enforce this algorithm:
+
+32-bit, Rolling Hash: FNV-1a Variant
+
+Pseudo-code:
+
+function THA(entity_state):
+    h = 0x811C9DC5
+    for value in canonicalized_state:
+        h ^= small_hash(value)
+        h *= 16777619
+    return h
+
+small_hash(value) is defined in Section 32.
+
+This keeps it:
+
+fast
+
+small
+
+deterministic
+
+
+
+---
+
+31.6 Canonicalization Rules
+
+Each entity’s state must be canonicalized in this order:
+
+1. Schema fields in schema-declared order
+
+
+2. Temporal fields resolved to scalar at timestamp T
+
+
+3. Derivatives (if requested)
+
+
+4. Event flags at timestamp T
+
+
+5. Schema version
+
+
+6. Continuity marker (# keyframe ancestry)
+
+
+
+Nothing else.
+
+Maps/dicts must be:
+
+key-sorted
+
+stable encoded
+
+
+Floats must:
+
+be encoded in exact IEEE-754 32-bit format
+
+normalized (no NaNs, no -0)
+
+
+
+---
+
+31.7 Snapshot Provider Synchronization
+
+Every snapshot must embed:
+
+syncpoint_hash
+timestamp
+source
+
+So AP can verify:
+
+snapshot.syncpoint_hash == engine.get_syncpoint(T)
+
+If mismatch → invalid snapshot → retry.
+
+This prevents:
+
+stale reads
+
+half-retcons
+
+partial updates
+
+
+
+---
+
+31.8 Predictive Sandbox Anchoring
+
+When predictive sandbox starts:
+
+Snapshot[T₀] → syncpoint_hash[T₀]
+
+When predictive sandbox ends:
+
+The engine checks:
+
+if syncpoint_hash[T₀] != current_syncpoint[T₀]:
+    discard prediction
+
+This avoids:
+
+branch mismatch
+
+corrupted predictions
+
+using a prediction from an invalidated timeline
+
+
+You cannot reuse predictions past a retcon or desync.
+
+
+---
+
+31.9 Retcon Validation Using Syncpoints
+
+Any time a retcon applies:
+
+1. Engine computes new SyncpointHash(T)
+
+
+2. Engine checks old SyncpointHash(T)
+
+
+3. Retcon must:
+
+declare the delta
+
+update continuity marker
+
+regenerate syncpoint
+
+
+
+
+If old and new hashes mismatch AND no retcon was declared → ILLEGAL TIME MUTATION.
+
+
+---
+
+31.10 Syncpoints Inside ZONB
+
+ZONB must embed:
+
+syncpoint_table = [
+    {T₀, hash},
+    {T₁, hash},
+    ... 
+]
+
+Compressed form:
+
+delta-coded timestamps
+
+varint hash encoding
+
+
+This allows:
+
+fast loading
+
+fast integrity checking
+
+binary-level tamper detection
+
+
+
+---
+
+31.11 Syncpoint Drift Detection
+
+If two consecutive syncpoints deviate from predicted behavior (predicted vs real):
+
+Engine logs:
+
+temporal drift
+Δpos  
+Δhp  
+Δentropy  
+Δemotion  
+Δstate_flags
+
+Used by:
+
+BalancerBot
+
+AP self-correction
+
+narrative pacing engine
+
+
+
+---
+
+31.12 Syncpoint Lifetime
+
+Syncpoints are never deleted.
+They are:
+
+appended
+
+compacted
+
+rolled up
+
+
+Rollup merges every K syncpoints:
+
+SuperSyncpoint = H(hash1, hash2, … hashK)
+
+This keeps memory small and deterministic.
+
+
+---
+
+31.13 Example: Syncpoint for NPC
+
+At time T = 12.4s, an NPC has:
+
+pos = [4.2, 1.1]
+hp = 87.5
+emotion.anger = 0.6
+schema_version = npc_v3
+continuity = 14
+
+Hash anchor:
+
+THA = H(4.2, 1.1, 87.5, 0.6, npc_v3, 14)
+
+Global syncpoint:
+
+SyncpointHash(12.4)
+  = H(THA_npc1, THA_player, THA_npc2, …)
+
+
+---
+
+31.14 Final Contract Summary
+
+Syncpoints create temporal invariants.
+Hash anchors verify temporal continuity.
+Together they enforce the chronological laws of EngAIn.
+
+If anything tries to break time?
+
+The engine detects it instantly.
+
+
+---
+
+NEXT SECTION
+
+We go deeper:
+
+32 — Canonical Hashing Rules
+
+(How every primitive value is hashed, how floats normalize, etc.)
+
+Say “32” and we keep moving.

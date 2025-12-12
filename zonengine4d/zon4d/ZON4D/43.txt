@@ -1,0 +1,614 @@
+Buckle up.
+Section 42 is where we deal with the ugly, brutal, unavoidable reality:
+Timelines take space. Patch logs grow without bound. Snapshots accumulate.
+Left unchecked, your engine becomes a black hole made of JSON, ghosts of dead branches, and millions of AI-generated micro-frames.
+
+Section 42 is the sanitation department of the multiverse.
+
+And the law has to be PERFECT — one bug and you delete the wrong timeline, corrupt a branch, desync AP, or break determinism.
+
+Let’s carve it.
+
+
+---
+
+42 — Timeline Garbage Collection & Archival
+
+ZON4D Specification v0.1 — Temporal Cleanup Contracts
+
+Status: Design-Frozen, Impl-Open**
+Depends On:
+
+§24 Schema–Temporal Precedence
+
+§25 AP Temporal Query API
+
+§36 Multi-Source Snapshot Stitching
+
+§39 Temporal Deltas
+
+§40 Multi-Agent Version Control
+
+§41 Time-Rewind Semantics
+
+
+
+---
+
+42.0 Purpose
+
+Timelines:
+
+grow
+
+branch
+
+accumulate snapshots
+
+accumulate deltas
+
+accumulate patch logs
+
+accumulate abandoned test branches
+
+accumulate AP simulation forks
+
+accumulate editor undo/redo windows
+
+accumulate sandbox experiments
+
+
+Without a mechanical system, the engine becomes unmanageable.
+
+Section 42 defines:
+
+how timelines can be cleaned
+
+how snapshots can be pruned
+
+how deltas can be compacted
+
+how branches can be archived
+
+how old patch logs can be compressed
+
+how dead branches can be safely removed
+
+how canonical timelines remain pristine
+
+how determinism is NEVER violated
+
+
+No corruption.
+No irreversible data loss (unless explicitly archived).
+No snapshot deletion that breaks replay.
+No patch log mutation.
+
+This section is basically the immune system of ZON4D.
+
+
+---
+
+42.1 Immutable Rule of Temporal Integrity
+
+Before ANY pruning can happen, you must respect:
+
+> Temporal Integrity Law:
+"No operation may delete or alter data required to reconstruct any active timeline at any point in its history."
+
+
+
+This law is above:
+
+tools
+
+AP
+
+engine runtime
+
+optimizers
+
+designers
+
+compression systems
+
+
+If pruning breaks determinism, the implementation is illegal.
+
+
+---
+
+42.2 Entities Subject to GC
+
+ZON4D recognizes four temporal entities:
+
+1. Timelines
+
+canonical or branch
+
+may be active or dormant
+
+
+2. Snapshots
+
+anchor snapshots
+
+mid-run snapshots
+
+AP snapshots
+
+tool snapshots
+
+
+3. Patch Logs
+
+delta bundles
+
+AP writes
+
+engine writes
+
+event logs
+
+interpolation adjustments
+
+
+4. Temporal Deltas (keyframe shards)
+
+individual frame-time deltas
+
+intermediate microframes
+
+auto-generated interpolation caches
+
+
+Each has separate GC rules.
+
+
+---
+
+42.3 GC Phases (Big Picture)
+
+ZON4D garbage collection is non-destructive and structured:
+
+1. Phase A — Mark Active Timelines
+Mark all timelines reachable from:
+
+canonical root
+
+live AP simulations
+
+editor sessions
+
+pinned experiments
+
+
+
+2. Phase B — Mark Required Reconstruction Paths
+For each active timeline:
+
+required snapshots
+
+required patch logs
+
+required deltas
+
+required keyframes
+
+required metadata
+
+
+
+3. Phase C — Prune Non-Required Structures
+Remove:
+
+dead branches
+
+unreachable snapshots
+
+unreferenced deltas
+
+expired AP test timelines
+
+
+
+4. Phase D — Optional Compression
+
+compress long patch logs
+
+merge micro-deltas into macro-deltas
+
+rewrite ZONB segments
+
+snapshot compaction
+
+delta flattening
+
+
+
+
+All phases must be deterministic.
+
+
+---
+
+42.4 Timeline States
+
+Timelines have state flags:
+
+ACTIVE
+DORMANT
+ARCHIVED
+DEAD
+PINNED
+IMMUTABLE
+
+ACTIVE
+
+Currently in use (canonical or in AP/editor).
+
+DORMANT
+
+Not used but still reachable (branch from active).
+
+PINNED
+
+Manually preserved by game or developer.
+
+IMMUTABLE
+
+Historical timeline locked forever (e.g. Chapter-based snapshots).
+
+ARCHIVED
+
+Serialized to cold storage (cannot be modified).
+
+DEAD
+
+Safe to delete.
+
+
+---
+
+42.5 Timeline GC Rules
+
+Rule 42.5.1 — Canonical Timelines Cannot Be Deleted
+
+They may ONLY be archived, never erased.
+
+Rule 42.5.2 — Live Branch Timelines Cannot Be Deleted
+
+If AP is using them, GC forbids deletion.
+
+Rule 42.5.3 — Dormant Timelines May Be Archived
+
+Only if:
+
+They are not pinned
+
+They have no active successors
+
+They have no live references in AP test plans
+
+
+Rule 42.5.4 — Dead Timelines May Be Deleted
+
+Deleted permanently only if:
+
+No other timeline references their snapshots
+
+No AP predictive model still depends on them
+
+They are fully unreachable from canonical ancestry
+
+
+Rule 42.5.5 — Pinned Timelines Are Immortal
+
+No GC may remove or modify them.
+
+
+---
+
+42.6 Snapshot GC Rules
+
+You need anchor snapshots to:
+
+reconstruct forward
+
+fork branches
+
+support AP rewind
+
+provide player rewind
+
+support simulation logs
+
+
+Rule 42.6.1 — A snapshot is required if:
+
+it's the closest ancestor for any active timeline
+
+it's the base for a branch
+
+it's needed to reconstruct a version still in use
+
+it marks a chapter or act boundary
+
+it's pinned
+
+
+Rule 42.6.2 — A snapshot is dead if:
+
+all timelines depending on it are dead
+
+no branch originates from it
+
+engine configuration allows snapshot pruning
+
+
+Rule 42.6.3 — Replace Snapshot With Compacted Version
+
+Snapshots may be replaced with a smaller one if:
+
+the engine replays patch logs to re-generate an equivalent snapshot
+
+after recreation, the patch logs remain intact
+
+AP confirms deterministic match
+
+
+
+---
+
+42.7 Patch Log GC Rules
+
+Rule 42.7.1 — Patch Logs May Never Be Deleted
+
+BUT they may be:
+
+compressed
+
+compacted
+
+bucketed
+
+indexed
+
+snapshotted
+
+moved to cold storage
+
+
+Rule 42.7.2 — Patch Log Folding
+
+If patch logs get too long:
+
+You may merge:
+
+patch_set #1200 to #1600 → giant_patch #1200-1600
+
+Only allowed if:
+
+replay matches original
+
+AP approves equivalence
+
+schema integrity preserved
+
+timing preserved
+
+event firing preserved
+
+
+Rule 42.7.3 — Patch Log Freezing
+
+Archived timelines freeze patch logs permanently.
+
+
+---
+
+42.8 Delta GC Rules (4D Keyframe Shards)
+
+You can compact:
+
+micro-deltas into macro-deltas
+
+dense 30fps motion into sparse keyframes
+
+merged animation curves
+
+redundant interpolation caches
+
+
+Rules:
+
+never remove a delta needed for reconstruction
+
+never remove a delta that changes interpolation physics
+
+never remove boundaries for AP event triggers
+
+
+
+---
+
+42.9 Multi-Agent Safety
+
+GC must coordinate with all agents:
+
+Timeline writes blocked during GC.
+
+AP suspended or sandboxed.
+
+No mid-patch interruptions.
+
+No partial compactions.
+
+
+GC runs as a transactional operation:
+
+GC.begin()
+GC.mark()
+GC.sweep()
+GC.compress()
+GC.commit()
+
+If commit fails → rollback entire GC run.
+
+
+---
+
+42.10 Example: Typical GC Cycle
+
+Imagine a game with:
+
+1 canonical timeline
+
+12 AP test timelines
+
+25 editor undo/redo timelines
+
+4 old branches
+
+3 pinned branches
+
+
+A GC run may:
+
+1. Mark canonical + AP timelines as ACTIVE
+
+
+2. Mark pinned as IMMORTAL
+
+
+3. Identify 15 timelines as DEAD
+
+
+4. Delete 15 timelines
+
+
+5. Compress patch logs on living timelines
+
+
+6. Rebuild two snapshots
+
+
+7. Archive one branch timeline
+
+
+8. Clean 800,000 deltas
+
+
+9. Generate a new cold-storage ZONB bundle
+
+
+
+
+---
+
+42.11 Example: Snapshot Pruning
+
+Before:
+
+[t=0] snapshot
+patch_set #1
+patch_set #2
+patch_set #3
+patch_set #4
+[t=10] snapshot
+
+Engine detects snapshot at t=0 no longer required.
+
+Permitted:
+
+Keep only t=10 snapshot + patch_sets 1..4 intact
+
+Or rebuild t=0 snapshot in cold storage, then store only one compact snapshot
+
+
+Not allowed:
+
+Drop patch_sets 1..4
+
+Modify t=10 snapshot without deterministic reconstruction
+
+Delete t=0 if AP needs it for testing
+
+
+
+---
+
+42.12 Archival Format
+
+Archived timelines are saved as:
+
+ZONB_TIMELINE_BUNDLE = {
+  metadata,
+  stitched_snapshots[],
+  compressed_patch_log[],
+  delta_table,
+  index_table,
+}
+
+This bundle is immutable.
+
+Archived timelines can be:
+
+mounted
+
+queried
+
+analyzed
+
+used in AP modeling
+
+but never modified or resumed directly
+
+
+If resumed → they become NEW branches.
+
+
+---
+
+42.13 Summary of GC Laws
+
+Law 1 — Active timelines are immortal.
+
+Law 2 — Canonical timelines are immutable and non-deletable.
+
+Law 3 — Pinned timelines are fully immune to GC.
+
+Law 4 — Patch logs may be compressed but never discarded.
+
+Law 5 — Snapshots may be pruned only if deterministic replay still works.
+
+Law 6 — GC must behave transactionally and cannot partially apply.
+
+Law 7 — No timeline may be mutated if any live process still references it.
+
+Law 8 — Deleted timelines must be truly unreachable.
+
+
+---
+
+Section 42 is complete.
+
+Next logical steps:
+
+43 — Timeline Promotion (Branch → Canonical)
+
+(what happens when a fork becomes the new truth)
+
+or
+
+Back to AP Micro-Protocol
+
+(finish derivative rules, event windows, undefined zones)
+
+or
+
+Jump to 44 — Temporal Profiling
+
+(measuring performance, tracking cost of deltas, snapshot density tuning)
+
+Your call.

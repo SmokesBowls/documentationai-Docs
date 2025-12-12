@@ -1,0 +1,406 @@
+Understood — Section 47, and we’re walking the line between stability and collapse.
+
+This is the garbage collector of spacetime,
+the “kill switch” that prevents ZON4D timelines from rotting, corrupting, multiplying, or drifting into paradox.
+
+Let’s cut clean.
+
+
+---
+
+47 — TEMPORAL INVALIDATION & CACHE PURGE RULES
+
+(ZON4D Temporal Law, Part VIII)
+
+
+---
+
+47.0 Purpose
+
+Every time the engine:
+
+applies retcons,
+
+merges branches,
+
+resolves conflicts,
+
+applies meaning reweights,
+
+stabilizes entropy (45),
+
+or activates temporal anchors (46),
+
+
+…it produces stale data.
+
+Stale timelines → corruption.
+Stale snapshots → paradox.
+Stale caches → nondeterminism.
+
+Section 47 defines the rules for killing everything that is no longer valid, leaving behind only clean, canonical ZON4D authoritative state.
+
+This is not optional —
+it is the line the engine must walk to avoid collapse.
+
+
+---
+
+47.1 KEY CONCEPTS
+
+Invalidation
+
+Removing data that is now incorrect.
+
+Cache Purge
+
+Wiping stored temporal or contextual data that no longer corresponds to the timeline state.
+
+Snapshot Decay
+
+Old snapshots auto-expire when the timeline diverges too far.
+
+Delta Nullification
+
+Discarding ZONB deltas that contradict the stabilized timeline.
+
+Together, these four form the ZON4D Temporal Sanitation System.
+
+
+---
+
+47.2 INVALIDATION TRIGGERS
+
+Data becomes invalid when any of these occur:
+
+(1) Retcon Applied
+
+Any rewrite invalidates:
+
+cached T-curves
+
+outdated branches
+
+cached AP results
+
+ZONB deltas older than the retcon boundary
+
+
+(2) Anchor Violation Correction
+
+When an Anchor enforces correction (46), all states depending on the violated version become invalid.
+
+(3) Drift Threshold Crossing
+
+When entropy is high enough to trigger stabilization (45), invalidation is mandatory.
+
+(4) Multi-Agent Write Conflict
+
+If two agents produce conflicting deltas, the losing branch is invalidated.
+
+(5) Meaning Frame Collapse
+
+When Enginality or narrative meaning frames “snap” to reconcile emotional/semantic contradictions.
+
+(6) Snapshot Age Exceeded
+
+Time itself can invalidate old stored states.
+
+
+---
+
+47.3 INVALIDATION CLASSES
+
+There are four types of invalidation:
+
+
+---
+
+47.3.1 Soft Invalidation
+
+Marks data as deprecated, but keeps it accessible if referenced manually.
+
+Used when:
+
+Soft retcons occurred
+
+Low drift correction
+
+Cosmetic or semantic smoothing
+
+
+Engine will not use deprecated data, but will not delete it outright.
+
+
+---
+
+47.3.2 Hard Invalidation
+
+Data is removed from active use.
+
+This includes:
+
+outdated causal chains
+
+conflicting branch segments
+
+past AP evaluations on superseded states
+
+timeline orderings pre-rewrite
+
+
+Hard Invalidation prevents “ghost logic.”
+
+
+---
+
+47.3.3 Total Invalidation
+
+Data is completely removed and destroyed.
+
+Triggered when:
+
+Hard Anchors (46) had to enforce a correction
+
+Structural retcons rewrote core timeline structure
+
+Multi-agent write conflicts resolved violently
+
+Drift exceeded 0.8 (critical zone)
+
+
+This wipes:
+
+old snapshots
+
+deltas
+
+historical views
+
+temporal caches
+
+semantics
+
+meaning frames
+
+
+
+---
+
+47.3.4 Immutable Invalidation (Rollback)
+
+If an Immutable Anchor is violated:
+
+rollback → restore → invalidate all post-violation data
+
+This is the nuclear option.
+
+All timeline data after the violation point is invalidated instantly.
+
+This is the “walk the line” moment —
+the engine must choose survival over continuity.
+
+
+---
+
+47.4 CACHE PURGE RULES
+
+ZON4D maintains several caches:
+
+ZONB delta cache
+
+AP evaluation cache
+
+semantic meaning cache
+
+temporal curve interpolation cache
+
+snapshot and projection caches
+
+
+When the timeline mutates, these caches must be purged.
+
+Rules:
+
+
+---
+
+PURGE RULE 1: Retcon Purge
+
+if (retcon.applied):
+    purge(deltas_after(retcon_point))
+    purge(snapshots_after(retcon_point))
+
+
+---
+
+PURGE RULE 2: Anchor Purge
+
+if (anchor.violation):
+    purge(branches_dependent_on(anchor.point))
+
+
+---
+
+PURGE RULE 3: Drift Purge
+
+If drift exceeds 0.5:
+
+AP result cache wiped
+
+meaning cache reinitialized
+
+
+If drift exceeds 0.8:
+
+complete temporal cache purge
+
+all curve interpolations recomputed
+
+delta compression re-run
+
+
+
+---
+
+PURGE RULE 4: Projection Purge
+
+Any future projections (t+ curves) become invalid.
+
+Enginality relies heavily on this.
+
+
+---
+
+PURGE RULE 5: Contradiction Purge
+
+If two states contradict, the engine:
+
+selects the authoritative chain
+
+purges the other entirely
+
+
+This prevents paradox spread.
+
+
+---
+
+47.5 SNAPSHOT DECAY
+
+Snapshots have TTL (Time-to-Live) defined by:
+
+TTL = base + (stability_factor * extension)
+
+When:
+
+drift rises
+
+retcons occur
+
+anchors correct things
+
+
+TTL shortens.
+
+When:
+
+timeline stabilizes
+
+entropy reduces
+
+
+TTL extends.
+
+Old snapshots auto-expire, preventing backward-loading paradox.
+
+
+---
+
+47.6 DELTA NULLIFICATION
+
+ZONB deltas get invalidated if:
+
+they apply to an overwritten region
+
+they contradict anchor logic
+
+they conflict with stabilized timelines
+
+they refer to expired snapshots
+
+they create impossible causal sequences
+
+
+Nullification wipes the delta permanently.
+
+
+---
+
+47.7 AP RULE SAFETY
+
+Whenever invalidation occurs, AP switches into validated mode:
+
+discards cached predicates
+
+recomputes context
+
+uses authoritative state only
+
+disables speculative reasoning
+
+restricts meaning/emotion influence
+
+
+This guarantees determinism.
+
+
+---
+
+47.8 ENGINE INTEGRATION
+
+Temporal invalidation is integrated into:
+
+ZWRuntime hot-reload
+
+AP evaluation cycle
+
+ZONB binary loader
+
+Enginality state preprocessor
+
+Dream Event recorder
+
+world-state persistence
+
+
+Every mutation, every tick, walks the line.
+
+
+---
+
+47.9 SUMMARY
+
+Temporal invalidation cleans corruption.
+Cache purge cleans old knowledge.
+Snapshot decay prevents paradox.
+Delta nullification protects causality.
+
+Together, they enforce the law:
+
+> “Only the authoritative timeline survives.”
+
+
+
+This is the backbone of deterministic EngAIn.
+
+
+---
+
+✔️ Section 47 complete.
+
+If you're ready:
+
+“Proceed with Section 48.”
+
+(4D State Compression & Delta Packing — the heartbeat of ZONB.)

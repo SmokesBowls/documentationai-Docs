@@ -1,0 +1,250 @@
+Here’s a clean, fast, no-nonsense bullet-point refresher of exactly where ZW-H stands — no boxes, no clutter, no walls of text.
+
+
+---
+
+✅ ZW-H v0.1 — Quick Refresher (Bullet Points Only)
+
+1. Purpose
+
+ZW-H = Hard ZW
+
+Typed
+
+Strict
+
+Deterministic
+
+Validated
+
+Converts soft ZW-S into structured, guaranteed-correct data
+
+
+
+---
+
+2. Core Concepts
+
+Schemas (%type) define structure
+
+Fields define types + constraints
+
+Validator enforces rules
+
+Overrides allowed ONLY if the schema opts in with allow_override true
+
+
+
+---
+
+3. Primitive Types
+
+string
+
+int
+
+float
+
+bool
+
+enum
+
+
+
+---
+
+4. Complex Types
+
+list<T>
+
+block<T>
+
+any (prototype only, not recommended)
+
+
+
+---
+
+5. Constraints
+
+min / max
+
+regex
+
+values (for enums)
+
+length / minlen / maxlen
+
+
+
+---
+
+6. Required vs Optional
+
+required → MUST exist
+
+optional → gets default if missing
+
+
+Defaults only apply to optional fields.
+
+
+---
+
+7. Allowed Type Coercion
+
+Only these:
+
+"5" → int
+
+"3.14" → float
+
+"true"/"false" → bool
+
+
+Anything else → error
+
+
+---
+
+8. Unknown Fields
+
+strict true → error
+
+strict false → ignore (warn)
+
+
+
+---
+
+9. Per-Block Override (C1)
+
+Only works if schema explicitly opts in:
+
+%type npc
+  {allow_override true}
+
+Then inside a block:
+
+%npc
+  %override health {type float min 0.0 max 100.0}
+  {health 19.5}
+
+Rules:
+
+Overrides are local only
+
+Cannot add new fields
+
+Cannot change required/optional
+
+Cannot exceed global constraints unless overridden explicitly
+
+Not kept in final output
+
+
+
+---
+
+10. Validation Steps (Order Matters)
+
+1. Required fields exist
+
+
+2. Types match
+
+
+3. Constraints enforced
+
+
+4. Defaults applied
+
+
+5. Nested blocks validated
+
+
+6. Unknown keys handled (strict/permissive)
+
+
+
+
+---
+
+11. Mapping: ZW-S → ZW-H
+
+Blocks → objects
+
+Fields → key:value
+
+Lists → JSON arrays
+
+Scalars → primitives
+
+Unknown keys → strict/permissive rules
+
+Overrides applied first
+
+
+
+---
+
+12. Error Types
+
+missing_field
+
+type_mismatch
+
+constraint_violation
+
+unknown_field
+
+invalid_enum
+
+
+
+---
+
+13. Polymorphism
+
+If a field says block<item>, it accepts:
+
+item
+
+or any schema that extends item
+
+
+
+---
+
+14. Final Output
+
+ZW-H always produces:
+
+Validated JSON-like structure (ZONJ)
+OR
+
+Structured errors
+
+
+Nothing in-between.
+
+
+---
+
+15. Status
+
+ZW-H v0.1 is frozen.
+Future changes go to v0.2+ only.
+
+
+---Whenever you’re ready, you can point at the next step:
+
+ZON4D spec (temporal data model)
+
+AP v1.0 execution spec (Anti-Python)
+
+Validator implementation
+
+Compiler design
+
+Runtime wiring

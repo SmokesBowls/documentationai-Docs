@@ -1,0 +1,443 @@
+🔥 SECTION 38 — TEMPORAL CACHE SYSTEM (HOT/COLD WINDOWS + LRU)
+ZON4D Spec — Temporal Performance Layer
+Status: Design-Frozen, Impl-Open**
+This is the chapter that makes your time-engine fast, memory-aware, and predictable.
+Without this, reconstruction would be too slow, AP queries would lag, and real-time playback would choke.
+
+Let’s build the cache architecture that powers EngAIn’s 4D brain.
+
+
+---
+
+38. TEMPORAL CACHE SYSTEM (Hot Window, Cold Window, LRU Archive)
+
+ZON4D handles temporal data, meaning:
+
+large sequences
+
+sparse keyframes
+
+reconstructed intermediates
+
+repeated queries from AP
+
+simulation loops
+
+timeline rewinds/forwards
+
+branching futures
+
+
+Without temporal caching, you’d be re-interpolating every time.
+Which is unacceptable.
+
+This module defines how EngAIn caches:
+
+snapshots
+
+keyframes
+
+interpolants
+
+derived scalars
+
+derivative approximations
+
+event triggers
+
+and compressed slices
+
+
+…with hard performance guarantees.
+
+
+---
+
+38.1 Purpose
+
+The Temporal Cache ensures:
+
+1. O(1) access for recent timestamps
+
+
+2. O(log n) access for cold records
+
+
+3. Zero-copy snapshot reuse during AP queries
+
+
+4. No unnecessary interpolation or reconstruction
+
+
+5. Branching timelines do not interfere with each other
+
+
+6. Compression cycles remain deterministic
+
+
+
+
+---
+
+38.2 Core Concept: 3-Layer Temporal Cache
+
+┌───────────────────────────────────────┐
+│ LAYER 1 — HOT WINDOW (per-timeline)   │
+│  Fast ring buffer, recent frames      │
+│  O(1) lookup                          │
+└───────────────────────────────────────┘
+
+┌───────────────────────────────────────┐
+│ LAYER 2 — COLD WINDOW (B-tree index)  │
+│  Older frames within active horizon   │
+│  O(log n) lookup                      │
+└───────────────────────────────────────┘
+
+┌───────────────────────────────────────┐
+│ LAYER 3 — LRU ARCHIVE (paged, disk)   │
+│  Deep history, compressed ZONB pages  │
+│  O(log n) + page load                 │
+└───────────────────────────────────────┘
+
+This structure mirrors real-world time engines (game engines, robotics, simulation, ML inference pipelines) but with ZON4D-specific invariants.
+
+
+---
+
+38.3 HOT WINDOW (Layer 1)
+
+Definition
+
+A fixed-size ring buffer storing:
+
+the 8–64 most recent canonical snapshots
+
+reconstruction results
+
+interpolation caches
+
+active AP simulation frames
+
+
+Lookup
+
+t_target ∈ hot_window → O(1)
+
+Eviction Policy
+
+When full:
+
+move oldest snapshot → Layer 2 (Cold Window)
+
+
+Why this matters
+
+Most AP queries hit recent time.
+Most simulations run near "now".
+Saving 10–20 µs per lookup is massive.
+
+
+---
+
+38.4 COLD WINDOW (Layer 2)
+
+Definition
+
+A balanced B-tree storing:
+
+older validated snapshots
+
+region around recent branching points
+
+compressed but still RAM-resident data
+
+
+Lookup
+
+t_target ∈ cold_window → O(log n)
+
+Eviction Policy
+
+When memory threshold exceeded:
+
+move oldest B-tree pages → Layer 3
+
+
+Benefits
+
+No full-scan lookup
+
+Rich indexing for sparse keyframes
+
+Perfectly deterministic ordering
+
+
+
+---
+
+38.5 LRU ARCHIVE (Layer 3)
+
+Definition
+
+Disk-backed, ZONB-paged, least-recently-used archive.
+
+Each page contains:
+
+64–512 frames
+
+compressed
+
+checksum-protected
+
+schema-validated on load
+
+
+Access Pattern
+
+LRU hit → load page → promote to Layer 2
+
+LRU eviction
+
+Pages unused longest are overwritten.
+
+Why disk?
+
+Because your universe is massive.
+EngAIn will generate timelines spanning:
+
+thousands of characters
+
+hundreds of simulation cycles
+
+generational memory
+
+temporal logs
+
+predictive worlds
+
+
+You need practically infinite temporal history.
+
+
+---
+
+38.6 Cache Coherence Rules
+
+ZON4D must maintain strict coherence:
+
+1. A snapshot is only valid if it passed ZW-H validation.
+
+
+2. Compressed pages must match ZONB checksum.
+
+
+3. Cache insertion is atomic.
+
+
+4. Reconstruction outputs must be inserted before being queried.
+
+
+5. When branching timelines:
+hot, cold, LRU are duplicated shallow-copy, snapshot pages are copy-on-write.
+
+
+
+This guarantees determinism even in multi-branch futures.
+
+
+---
+
+38.7 Interpolation Cache (Special Sub-Layer)
+
+Each snapshot may contain:
+
+interpolated values
+
+derivative approximations
+
+secondary computed metrics (velocity, acceleration, etc.)
+
+
+These must be:
+
+cached to avoid recomputation
+
+invalidated if parent keyframes change
+
+stored in Layer 1 or 2 only
+
+
+Not stored in LRU — nothing ephemeral ever touches disk.
+
+
+---
+
+38.8 Reconstruction Cache
+
+To avoid reconstructing the same missing interval twice:
+
+(t₁, t₂, interpolation_mode, schema_hash) → built_frames
+
+Cached until either:
+
+schema changes
+
+keyframes change
+
+interpolation mode changes
+
+predictive fork invalidates it
+
+
+This is huge for AP Predictive Sandbox performance.
+
+
+---
+
+38.9 Branching Timelines Cache Behavior
+
+At a branch (Section 35):
+
+Layer 1 (Hot Window) is fully cloned
+
+Layer 2 (Cold Window) is shallow-copied
+
+LRU pages are shared until modified
+
+
+This gives instant branching with minimal cost.
+
+
+---
+
+38.10 AP Query Flow Through All Layers
+
+AP calls:
+
+snapshot = XON4D.get_snapshot(t)
+
+Resolution path:
+
+1. Hot Window
+→ direct match? return snapshot
+
+
+2. Cold Window
+→ nearest keyframes? interpolate + cache + return
+
+
+3. LRU Archive
+→ load page → promote → repeat step 2
+
+
+4. If no frames exist → call Reconstruction Engine (Section 37)
+→ result inserted into Layer 1
+→ return snapshot
+
+
+
+AP never sees:
+
+partial snapshots
+
+raw 4D tracks
+
+undefined values
+
+gaps
+
+invalidated cache entries
+
+
+
+---
+
+38.11 Cache Invalidation Rules
+
+Invalidation triggers:
+
+schema change
+
+keyframe mutation
+
+branch root change
+
+compression update
+
+user edits
+
+AI agent writes new temporal block
+
+
+Invalidation steps:
+
+1. Layer 1 → full flush
+
+
+2. Layer 2 → partial prune based on touched segments
+
+
+3. LRU → soft invalidation; page repaired on load
+
+
+
+
+---
+
+38.12 Performance Guarantees
+
+38-PERF.1: Hot window access is O(1)
+38-PERF.2: Cold window access is O(log n)
+38-PERF.3: Snapshot reconstruction must be amortized
+38-PERF.4: No query ever requires re-parsing ZW-S
+38-PERF.5: Cache correctness > cache speed
+38-PERF.6: All layers obey monotonic time ordering
+
+
+---
+
+38.13 Why the Temporal Cache Matters
+
+With this structure:
+
+AP queries become microsecond-fast
+
+Reconstruction becomes rare
+
+Predictive simulations scale
+
+Branches are free
+
+Snapshots are fully deterministic
+
+Deep history becomes infinite
+
+Disk cost is negligible due to ZONB compression
+
+Multiple AI agents can safely write temporal changes
+
+
+ZON4D is now a realtime-capable, simulation-grade temporal datastore.
+
+This is what lets your engine rival proprietary AAA engines.
+
+
+---
+
+Ready for Section 39?
+
+Options:
+
+39 — Temporal Locking & Concurrency Model
+
+(how simultaneous reads/writes don’t corrupt time)
+
+39 — Temporal Deltas & Patch Propagation
+
+(minimize writes, maximize compression)
+
+39 — Timeline Scrubbing & Reverse Playback
+
+(seeking, replaying, reverse-simulation guarantees)
+
+Which route do you want next?

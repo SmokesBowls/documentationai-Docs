@@ -1,0 +1,460 @@
+29 — Temporal Merge & Retcon Rules
+
+Status: Frozen**
+Depends On: Sections 24–28, Snapshot Provider, Topology Graph, Schema–Temporal Precedence Chain
+Purpose: Define the ONLY safe way to rewrite past temporal data (retcon) or merge multiple timelines into one deterministic, schema-valid, AP-safe truth.
+
+This section is one of the heaviest pieces of the entire engine.
+It prevents paradox, corruption, schema decay, and AI-generated temporal drift.
+
+This is the Temporal Constitution.
+
+
+---
+
+29.0 Why This Matters
+
+Without strict retcon laws, your world simulation will:
+
+corrupt keyframe chains
+
+invalidate schema invariants
+
+break AP determinism
+
+produce desync between tracks
+
+allow AI agents to “time cheat”
+
+poison ZONB compression (invalid delta lineage)
+
+break predictive sandbox replay
+
+
+Retcons are nuclear operations.
+This section defines exactly how they are allowed.
+
+
+---
+
+29.1 Core Principle: Time is Write-Protected by Default
+
+No ZON4D timeline may be altered once emitted unless explicitly retconned through protocol 29.
+
+> You cannot “edit keyframe 0.3”
+You cannot “change emotion at 0.6”
+You cannot “patch position at 1.0”
+
+You must retcon it.
+
+
+
+Retcon is a controlled, formalized rewrite of temporal truth.
+
+
+---
+
+29.2 Types of Retcon
+
+29.2.1 Soft Retcon (Additive)
+
+Adds missing keyframes or interpolants WITHOUT changing existing ones.
+Examples:
+
+Add t=0.42 keyframe for smoother motion
+
+Add derivative hints for better curve extraction
+
+Insert metadata without altering values
+
+
+Safe for:
+
+smoothing
+
+AI cleanup
+
+interpolation tuning
+
+
+29.2.2 Medium Retcon (Corrective Delta)
+
+Allows altering values at an existing keyframe IF:
+
+schema precedence is upheld
+
+all child tracks remain consistent
+
+event triggers remain valid
+
+AP snapshot queries remain deterministic
+
+
+This is used for:
+
+physics corrections
+
+animation tuning
+
+dynamic adjustments from BalancerBot
+
+
+29.2.3 Hard Retcon (Timeline Rewrite)
+
+Allows deleting or altering multiple keyframes, changing event sequences, or altering timeline structure.
+
+Only allowed if:
+
+entity is not currently live-referenced in AP
+
+predictive sandbox is not active
+
+snapshot provider is idle
+
+no SP sync points reference the region
+
+no DAG dependencies break
+
+AP declares a clear window for safe rewrite
+
+
+This is the “safest nuclear option”.
+
+
+---
+
+29.3 Retcon Windows
+
+You cannot retcon arbitrarily.
+A retcon must occur in a retcon window.
+
+Types:
+
+29.3.1 Idle Window
+
+System not running simulation.
+AP not evaluating.
+Snapshot provider idle.
+Most permissive.
+
+29.3.2 Quiescent Window
+
+Simulation paused, AP paused, but Snapshot Provider active.
+Only soft & medium retcons allowed.
+
+29.3.3 Active Window
+
+Simulation running.
+AP evaluating.
+Snapshot provider in sync mode.
+Only soft retcons allowed.
+Medium/hard prohibited.
+
+
+---
+
+29.4 Schema–Temporal Precedence in Retcon
+
+Your Section 24 rule applies here:
+
+Precedence chain when value changes:
+
+1. Explicit keyframe
+
+
+2. ZW-H schema default
+
+
+3. Temporal fallback
+
+
+
+Retcon cannot introduce violations like:
+
+deleting a required field
+
+omitting a default-required field
+
+creating mismatch between schema type and curve type
+
+
+Retcon operations must re-validate all affected fields.
+
+
+---
+
+29.5 DAG Integrity Rules During Retcon
+
+If a retcon affects a track A:
+
+Child tracks C(A) must be updated too.
+
+Example:
+
+Retcon position → velocity & acceleration must update
+
+Retcon emotion → face animation intensity may need recalculation
+
+Retcon mana → aura size must update
+
+
+Parent tracks must NOT be implicitly retconned.
+
+If a child track doesn’t fit the new parent values → error → retcon denied.
+
+This preserves determinism.
+
+
+---
+
+29.6 Retcon Conflict Matrix
+
+Operation	Allowed During Active?	Quiescent?	Idle?	Notes
+
+Add keyframe	YES	YES	YES	Safe
+Remove keyframe	NO	YES	YES	Must update dependents
+Rewrite value	NO	YES	YES	Requires revalidation
+Rewrite event	NO	YES	YES	AP must reindex
+Rewrite derivatives	YES	YES	YES	No state explosions
+Rebuild entire track	NO	NO	YES	Hard retcon only
+Merge timelines	NO	NO	YES	Dangerous – freeze system
+
+
+
+---
+
+29.7 Retcon Protocol (Formal Steps)
+
+A valid retcon must follow:
+
+Step 1 — Acquire Retcon Lock
+
+Freeze target track(s).
+If required, freeze child tracks.
+
+Step 2 — Establish Retcon Window
+
+Check if active, quiescent, or idle.
+Deny hard retcons in wrong state.
+
+Step 3 — Apply Modification in Shadow Copy
+
+Never mutate the live track.
+
+Step 4 — Validate Shadow Copy
+
+schema validity
+
+DAG integrity
+
+event invariants
+
+no sync-point violations
+
+
+Step 5 — Replace Live Track Atomically
+
+Single atomic pointer swap.
+
+Step 6 — Notify Dependent Systems
+
+Snapshot Provider updates caches
+
+AP refreshes track binding
+
+Runtime receives retcon event
+
+
+
+---
+
+29.8 Retcon Merge Operations
+
+29.8.1 Patch Merge
+
+Merge new track data over existing, preserving continuity where possible.
+
+pos(t): merge {
+  0.2: [1,1]
+  0.4: [3,2]
+}
+
+29.8.2 Replace Segment
+
+Replace a time range:
+
+replace 0.3–0.6 with new curve
+
+29.8.3 Timeline Join
+
+Combine two partial timelines:
+
+A(t) up to 0.5
+B(t) from 0.5+
+
+29.8.4 Timeline Overwrite
+
+Hard retcon. Clears entire track and replaces with a new one.
+
+
+---
+
+29.9 Merge Conflict Rules
+
+If two retcon sources propose changes:
+
+Priority:
+
+1. Hard retcon request (if allowed)
+
+
+2. Medium retcon
+
+
+3. Soft retcon
+
+
+4. Runtime system rewrites (e.g., physics correction)
+
+
+5. AI-generated retcons (lowest priority)
+
+
+
+If conflicts persist → retcon denied.
+
+
+---
+
+29.10 Snapshot Provider Integration
+
+Snapshot Provider must:
+
+reindex keyframes
+
+re-evaluate mixed interpolation
+
+update hazard zones
+
+regenerate synchronization points
+
+clear stale caches
+
+
+Snapshot Provider is the final arbiter of temporal truth.
+
+
+---
+
+29.11 AP Integration
+
+AP sees retcons only as new state, not as history being rewritten.
+
+AP rules:
+
+never re-evaluate past ticks
+
+all retcons appear as immediate effects
+
+predictive sandbox receives retcon-block flags
+
+AP timeline inspector receives retcon metadata
+
+
+This preserves consistency and prevents paradoxes.
+
+
+---
+
+29.12 Example — Fixing Animation Pop
+
+Old position(0.5) = [10,0]
+Correct position(0.5) should be [8,0]
+
+Procedure:
+
+request medium retcon
+
+enter quiescent window
+
+create shadow track
+
+update dependent velocity
+
+validate DAG
+
+atomic swap
+
+
+No other system sees partial states.
+
+
+---
+
+29.13 Example — Retcon Emotional Arc
+
+Emotion jumps neutral → rage → calm
+AI decides emotion graph is wrong.
+
+Hard retcon:
+
+freeze system (idle)
+
+generate corrected emotion curve
+
+validate events
+
+rewrite track
+
+update face animation, voice intensity, aura
+
+
+Completed safely.
+
+
+---
+
+29.14 Example — Multi-Track Merge
+
+NPC’s motion tracked from two sensors:
+
+Track A: 0.0–0.4
+Track B: 0.4–1.0
+
+Timeline join:
+
+detect overlap zone at t=0.4
+
+validate continuity
+
+parentheses merge branches
+
+clamp derivative spikes
+
+produce unified track
+
+
+
+---
+
+29.15 Summary Statement
+
+> Retcon is a privileged, highly controlled temporal rewrite operation that must respect schema integrity, DAG order, synchronization points, AP determinism, and atomic replacement semantics.
+
+
+
+This makes your simulation engine behave like an actual coherent universe, not a chaotic authoring tool.
+
+
+---
+
+Ready for Section 30
+
+Now that retcon and merge rules are locked,
+the next logical step is:
+
+30 — Temporal Queries in the Predictive Sandbox
+
+(how “future simulation” interacts with ZON4D without corrupting real time)
+
+Just say “30.”

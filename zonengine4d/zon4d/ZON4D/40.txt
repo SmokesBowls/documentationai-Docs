@@ -1,0 +1,672 @@
+Good, this is the gnarly one. Let’s nail it so nobody can ever “race-condition the timeline” by accident.
+
+
+---
+
+40 — Multi-Agent Temporal Concurrency & Locking
+
+ZON4D Specification v0.1 — Write Contention Model
+
+Status: Design-Frozen, Impl-Open
+Depends on:
+
+24 — Schema–Temporal Precedence
+
+25 — AP–ZON4D Snapshot Contract
+
+27 — AP Intent & Commit Protocol
+
+39 — Temporal Deltas & Patch Sets
+
+
+
+---
+
+40.0 Purpose
+
+ZON4D is not single-writer.
+
+You have:
+
+AP (primary rule engine / judicial core)
+
+Balancer / Tuner agents (e.g., difficulty adjuster, pacing)
+
+Authoring tools (editor sessions, dev console, live tweaks)
+
+Simulation bots (batch balancing, A/B test runners)
+
+
+All of them may try to write:
+
+to the same entity,
+
+across the same time window,
+
+at overlapping or identical timestamps.
+
+
+This section defines:
+
+how writes are serialized,
+
+how conflicts are detected/resolved,
+
+how to avoid locks that stall the world,
+
+and how to keep everything deterministic and debuggable.
+
+
+
+---
+
+40.1 Actors & Roles
+
+ZON4D sees writers as:
+
+{
+  "writer_id": "AP_CORE",          // or "BALANCER", "EDITOR", etc.
+  "priority": 100,                 // higher = more authoritative
+  "capabilities": ["temporal_write", "branch_create"],
+  "domain": ["combat", "npc_ai"]   // optional, engine-specific
+}
+
+40.1.1 Writer Classes (Normative)
+
+Class A — AP_CORE
+
+Highest authority on logical state changes.
+
+Can approve/reject patch sets.
+
+Can request branches on conflict.
+
+
+Class B — System Agents (Balancer, Tuner, etc.)
+
+Medium authority.
+
+Can propose patch sets; may be overridden by AP.
+
+
+Class C — Tools / Editors
+
+Debug / authoring.
+
+Usually bound to dedicated branches or offline timelines.
+
+
+
+The spec doesn’t hard-code these, but every engine must define a priority map and keep it stable.
+
+
+---
+
+40.2 Concurrency Model Choice
+
+ZON4D uses optimistic concurrency with versioned timelines, not heavy locks.
+
+Why:
+
+You want short-lived, high-frequency writes from many agents.
+
+Long locks over time ranges would stall AP and break simulation.
+
+You already have snapshots + patch sets — perfect for version checks.
+
+
+So instead of “lock timeline, write, unlock”, you do:
+
+> “take snapshot at version N → compute patch → commit if still at N”.
+
+
+
+If not, commit fails with a clear conflict code.
+
+
+---
+
+40.3 Timeline Versions
+
+Each timeline (branch) carries a monotonic version:
+
+{
+  "timeline_id": "main",
+  "version": 1234
+}
+
+40.3.1 Snapshot Version
+
+Every snapshot returned to AP (Section 25) must include:
+
+{
+  "snapshot": { /* canonical state */ },
+  "t": 0.72,
+  "timeline_id": "main",
+  "version": 1234
+}
+
+This version is the base_version for any patch set AP emits off that snapshot.
+
+
+---
+
+40.4 Patch Set Commit Contract (Multi-Agent)
+
+When any writer proposes a patch set (from Section 39):
+
+{
+  "patch_set_id": "combat_tick_0123",
+  "timeline_id": "main",
+  "base_version": 1234,           // important
+  "writer_id": "AP_CORE",
+  "time_span": [0.7, 0.75],
+  "deltas": [ ... ],
+  "meta": { ... }
+}
+
+ZON4D commit pipeline:
+
+1. Check Version
+
+If base_version != current_version(timeline_id) → reject with version_conflict.
+
+
+
+2. Check Temporal Overlap
+
+If another patch_set is already committed covering overlapping time_span: ok (we handle via field-level conflict policy, 39.11).
+
+If there’s an in-flight patch_set for the same window: see 40.8 (multi-agent queuing).
+
+
+
+3. Validate Patch Set
+
+Schema conformity (ZW-H).
+
+Delta rules (39).
+
+Writer capabilities (e.g., can this writer touch these fields/domains?).
+
+
+
+4. Apply or Reject
+
+On success:
+
+Apply patch set.
+
+Increment timeline version += 1.
+
+Persist to ZONJ/ZONB.
+
+
+On failure:
+
+No changes.
+
+Emit error record.
+
+
+
+
+
+
+---
+
+40.5 Lock Scopes (Soft, Not OS Locks)
+
+ZON4D does not expose OS-level locks.
+
+Instead, it defines logical lock scopes for conflict detection / scheduling:
+
+Entity Lock Scope: (timeline_id, entity_id)
+
+Time Window Scope: (timeline_id, [t_start, t_end])
+
+Field Lock Scope (optional): (timeline_id, entity_id, field_name)
+
+
+Internally, the engine may:
+
+keep a small in-memory structure of in-flight patch sets keyed by these scopes,
+
+reject or queue new patch sets that collide with scopes it can’t safely merge.
+
+
+But from the spec’s perspective, the observable behavior is:
+
+> “Conflicting patch sets may be rejected with a deterministic error code.”
+
+
+
+
+---
+
+40.6 Conflict Resolution Priority (Between Agents)
+
+From 39.11, extended for multi-agent:
+
+When two committed patch sets touch the same (entity, t, field):
+
+1. Compare writer priority.
+
+
+2. If same priority:
+
+Use field-specific merge rule (engine-defined).
+
+
+
+3. If merge rule absent:
+
+Follow engine default: either
+
+last-write-wins (based on commit order), or
+
+hard-conflict (patch set rejected at commit).
+
+
+
+
+
+The spec requires:
+
+For a given engine configuration, the result must be deterministic.
+
+You cannot use nondeterministic ordering (no random tie-breakers).
+
+
+
+---
+
+40.7 AP’s Role in Multi-Agent Writes
+
+AP is not just another writer.
+
+By design:
+
+AP runs the global rule layer.
+
+AP understands:
+
+flags,
+
+entropy,
+
+resource budgets,
+
+story beats,
+
+difficulty targets.
+
+
+
+Two recommended patterns:
+
+1. Direct AP Ownership
+
+All other agents emit intents.
+
+AP accepts/denies them, then AP alone emits patch sets.
+
+
+
+2. Hybrid — AP + Trusted System Agents
+
+AP and 1–2 critical system agents (e.g., BalancerBot) can emit patch sets directly.
+
+Editors and bulk tools emit via AP for live timelines, or write to separate branches.
+
+
+
+
+The spec doesn’t force one, but it strongly recommends that:
+
+> Any write that can affect player-visible canonical state should be AP-mediated.
+
+
+
+
+---
+
+40.8 In-Flight Patch Handling (Temporal Queuing)
+
+To avoid weird race conditions at the same time window:
+
+For each (timeline_id, entity_id):
+
+ZON4D may maintain a short queue of in-flight patch sets.
+
+If a new patch_set:
+
+uses same base_version,
+
+and overlaps in time_span,
+
+and its writer priority ≤ an already in-flight writer…
+
+
+
+…it can be:
+
+Rejected immediately (in_flight_conflict), or
+
+Queued until the higher-priority one commits/fails, then re-evaluated.
+
+
+Spec requirement:
+
+Whatever strategy you choose, it must be:
+
+documented,
+
+deterministic,
+
+and bounded (no infinite queue without backpressure).
+
+
+
+AP must see clear error codes so it can decide to:
+
+re-pull a fresh snapshot,
+
+re-compute patch sets,
+
+or fork a branch.
+
+
+
+---
+
+40.9 Branching on Irreconcilable Conflict
+
+When AP decides a conflict should not be resolved by “higher priority wins”, but by splitting reality, ZON4D must support:
+
+{
+  "request_type": "create_branch",
+  "from_timeline": "main",
+  "from_version": 1234,
+  "branch_id": "main::branch_anger_path",
+  "start_time": 0.7,
+  "meta": { ... }
+}
+
+Rules:
+
+1. Base Snapshot
+
+Branch must start from a resolved snapshot at (from_timeline, from_version, start_time).
+
+
+
+2. Independent Version Counter
+
+New branch has its own version, starting at 0 or inherited baseline.
+
+
+
+3. Patch Sets Are Per-Branch
+
+Patch sets must explicitly reference timeline_id.
+
+A patch_set committed to one branch does not affect others.
+
+
+
+
+This is how you handle “what if” AI experiments and reconvergence plans without poisoning mainline continuity.
+
+
+---
+
+40.10 Read Concurrency
+
+Reads are:
+
+Lock-free from the spec’s perspective.
+
+Snapshots must reflect:
+
+all committed patch sets up to version,
+
+no in-flight writes.
+
+
+
+While a patch_set is in commit-validation, snapshots may be:
+
+served from the last committed version, or
+
+blocked briefly until commit resolves — engine choice.
+
+
+Spec only demands:
+
+> A snapshot at version N must never partially include an uncommitted patch_set.
+
+
+
+
+---
+
+40.11 Temporal Locking Granularity (Guidance)
+
+You could try to lock:
+
+whole timeline,
+
+whole entity,
+
+individual fields.
+
+
+The spec’s guidance:
+
+Hard requirement: avoid large coarse locks as external API. No “lock whole timeline for write” for normal operations.
+
+Recommended:
+
+optimistic concurrency + version checks,
+
+optional internal per-entity scopes if engine wants more safety.
+
+
+
+If you expose explicit locks, they must:
+
+be short-lived,
+
+have timeouts,
+
+and never be required for AP–style commit workflows.
+
+
+
+---
+
+40.12 Failure Modes & Error Codes (Concurrency Layer)
+
+New error types at this layer:
+
+version_conflict
+
+base_version != current_version.
+
+
+in_flight_conflict
+
+overlapping time window with higher-priority writer pending.
+
+
+write_forbidden
+
+writer not allowed to modify this domain/field.
+
+
+branch_not_found
+
+commit references unknown branch/timeline.
+
+
+branch_stale
+
+write against a branch marked archived/closed.
+
+
+
+AP and other agents must see these codes so they can implement:
+
+retry logic,
+
+snapshot refresh,
+
+or branch creation.
+
+
+
+---
+
+40.13 Multi-Agent Example
+
+Situation
+
+Timeline: main, version 100.
+
+At t = 12.0, two things happen:
+
+AP wants to apply combat damage to npc.guard_01.
+
+BalancerBot wants to tweak difficulty, nudging health slightly up for the same NPC.
+
+
+
+1. AP Snapshot
+
+AP pulls:
+
+{
+  "snapshot": { /* guard state */ },
+  "t": 12.0,
+  "timeline_id": "main",
+  "version": 100
+}
+
+AP emits patch_set A:
+
+{
+  "patch_set_id": "ps_ap_dmg_001",
+  "timeline_id": "main",
+  "base_version": 100,
+  "writer_id": "AP_CORE",
+  "time_span": [12.0, 12.0],
+  "deltas": [
+    {
+      "t": 12.0,
+      "entity_id": "npc.guard_01",
+      "delta": {
+        "fields": {
+          "health": { "op": "add", "value": -30 }
+        }
+      }
+    }
+  ]
+}
+
+2. BalancerBot Snapshot
+
+BalancerBot also pulled at version 100, independently, emits patch_set B:
+
+{
+  "patch_set_id": "ps_balancer_hp_buff_01",
+  "timeline_id": "main",
+  "base_version": 100,
+  "writer_id": "BALANCER",
+  "time_span": [12.0, 12.0],
+  "deltas": [
+    {
+      "t": 12.0,
+      "entity_id": "npc.guard_01",
+      "delta": {
+        "fields": {
+          "health": { "op": "add", "value": +10 }
+        }
+      }
+    }
+  ]
+}
+
+3. Commit Order
+
+Assume AP commits first:
+
+ZON4D sees base_version=100 == current_version.
+
+Applies damage, increments version to 101.
+
+
+Now BalancerBot’s patch_set B arrives:
+
+base_version=100, current_version=101 → version_conflict.
+
+ZON4D rejects B, returns error to BalancerBot.
+
+
+BalancerBot can then:
+
+re-pull snapshot at version 101,
+
+decide if it still wants to buff,
+
+emit new patch_set with base_version=101.
+
+
+If your engine defines a merge rule for health where both apply:
+
+It could instead accept both in a single commit if they were in the same transaction.
+
+But across different writers and different transactions, version check wins.
+
+
+
+---
+
+40.14 Summary
+
+ZON4D uses optimistic concurrency with versioned timelines, not heavy global locks.
+
+Writes are proposed as patch sets with base_version.
+
+Commit only succeeds if base_version == current_version.
+
+Conflicts between agents are resolved by:
+
+writer priority,
+
+merge rules,
+
+or branch creation.
+
+
+AP is the primary governor; other agents either go through AP or are carefully controlled.
+
+Snapshots are always post-commit, never partially updated.
+
+No external “lock whole timeline” API; if you add one internally, it must be short, bounded, and invisible to AP’s contract.
+
+
+
+---
+
+If you want to keep the temporal line going, the natural follow-up after multi-agent writes is:
+
+41 — Undo/Redo & Time-Rewind Semantics (how players / AP safely roll back & branch)
+
+
+or pivot back to:
+
+tightening the AP–ZON4D micro-query spec (derivatives, event windows) into a single formal section now that the concurrency story is pinned.
+
+
+Your call: rewind mechanics next, or query micro-API?

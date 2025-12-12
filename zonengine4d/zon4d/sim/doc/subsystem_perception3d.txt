@@ -1,0 +1,183 @@
+Alright, **as lead**, here’s the decision — **clean, final, and exactly aligned with the architecture you just locked down.**
+
+You gave two candidate “next subsystem” directions:
+
+1. **Navigation** (your suggestion for core movement intelligence)
+2. **Perception** (your suggestion framed exactly the same way as Spatial3D:
+   *pure functional kernel + ZON4D StateView adapter*)
+
+And you’re asking:
+
+### **“Which subsystem should get the Spatial3D treatment *next*?”**
+
+Not “eventually,”
+not “what’s cool,”
+not “what’s easier.”
+
+But which one is:
+
+* best for the engine’s structural growth
+* best for ZON4D’s temporal model
+* best to integrate *now*, right after Spatial3D
+* best to keep downstream subsystems clean
+* best to parallel the architecture you just stabilized
+
+And the answer, as lead architect, is:
+
+# 🔥 **Perception System comes next.**
+
+Let me explain the reasoning clearly and brutally simply:
+
+---
+
+# 🧠 **WHY PERCEPTION BEFORE NAVIGATION**
+
+### **1. Spatial3D + Perception is a natural pairing.**
+
+You just established:
+
+* pure physics kernel (mr)
+* deep contract (AP constraints)
+* adapter
+
+Perception fits *directly* into this same shape:
+
+* **mr_perception.py** → pure functional raycasts, vector math, LOS tests
+* **PerceptionStateView** → ZON4D contract layer
+* **adapter** → converts world snapshot → visibility graph
+* **AP constraints** → prevents illegal perception claims
+
+Perception is literally the **Spatial3D “sibling domain.”**
+Navigation is the “cousin.”
+
+You always build siblings before cousins.
+
+---
+
+### **2. Navigation depends on Perception more than Perception depends on Navigation.**
+
+Navigation doesn’t just need pathfinding —
+it needs:
+
+* is the destination visible?
+* is there LOS?
+* is the target hidden?
+* can the agent detect threats?
+* is a path invalid due to occlusion?
+
+**Pathfinding without perception = blind AI.**
+But…
+
+**Perception without navigation = fully functional visibility logic.**
+
+Perception stands alone.
+Navigation builds on it.
+
+---
+
+### **3. Perception is MUCH easier to validate with the engine you have now.**
+
+Spatial3D just established:
+
+* deterministic positions
+* deterministic bounds
+* deterministic collision shapes
+* deterministic temporal steps
+
+This makes LOS / raycast:
+
+* 100% reproducible
+* 100% deterministic
+* 100% rollback-safe
+
+Navigation is more complex to test because it is:
+
+* multi-step
+* tree-expanding
+* path-dependent
+* cost-based
+* heuristic-sensitive
+
+Perception is pure math —
+perfect for the second domain.
+
+---
+
+### **4. Perception unlocks ALL AI behavior layers.**
+
+With a perception layer, you can immediately create deltas like:
+
+* `"perception/spotted(entity_a, entity_b)"`
+* `"perception/lost(entity_a, entity_b)"`
+* `"perception/heard_sound(entity_a, location)"`
+* `"perception/alert(entity_a)"`
+
+ZON4D can log these as state mutations,
+AP can validate them,
+Behavior Trees can consume them.
+
+Navigation?
+It only becomes meaningful *after* an agent knows about something.
+
+---
+
+### **5. Perception is the first true “World → Mind” subsystem.**
+
+Spatial3D handles matter.
+Perception handles awareness.
+
+This transforms the engine from:
+
+> A physics sandbox
+
+into:
+
+> A simulation with intelligence.
+
+Navigation transforms it into:
+
+> A world with goals.
+
+The correct order in cognitive engines is:
+
+1. Matter (done)
+2. Awareness (**next**)
+3. Intentions
+4. Execution paths
+
+Your architecture is following exactly this evolutionary ladder.
+
+---
+
+# 🔥 **FINAL LEAD DECISION**
+
+### ✔ **Next subsystem: PERCEPTION**
+
+### ✔ Build it with the exact Spatial3D pattern:
+
+* **Functional kernel:** raycasts, LOS, occlusion, hearing radii
+* **StateView adapter:** receives snapshot, outputs perception deltas
+* **AP constraints:** e.g., “agents cannot perceive through opaque objects”
+* **Alerts:** detection changes, rapid state switches
+
+Navigation comes **after** Perception.
+
+That is the clean, structural, architectural sequencing.
+
+---
+
+# If you want, I’ll now generate:
+
+### 👉 **perception_mr.py** (pure functional LOS kernel)
+
+### 👉 **PerceptionStateView** (deep-layer adapter)
+
+### 👉 **integration tests**
+
+### 👉 **perception task facade**
+
+### 👉 **AP constraints for perception correctness**
+
+Just say:
+
+**“Proceed with Perception.”**

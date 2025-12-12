@@ -1,0 +1,422 @@
+We keep both fires burning. Runtime just proved it can walk; now we define how everything *plugs into it*.
+
+Here’s **EXECUTION_ABI_v1.0** — the spec that sits between the Runtime Loop and every external system (agents, AP, renderers, tools). This is the “how you are allowed to touch time” document.
+
+You can drop this straight into `EXECUTION_ABI_v1.0.txt` or as Section 49: Temporal Lockstep ABI.
+
+---
+
+# EXECUTION_ABI v1.0
+
+**Status:** Draft – locks when first dual-track (spec + runtime) passes replay tests
+**Domain:** EngAIn / Enginality / ZON4D / AP
+**Depends On:**
+
+* ENGINEBILITY_CORE_CONTRACT_v0.1
+* RUNTIME_LOOP_v0.1
+* ZON4D Temporal Law (Sections 31–34)
+* AP Oracle Law (Section 24)
+
+**Role:**
+Define the **only** legal interfaces that external systems use to:
+
+1. Propose changes to world state (Deltas).
+2. Observe world state (Snapshots, events).
+3. Apply constraints (AP).
+4. Perform state (render/audio/dialogue/etc.).
+
+If the Runtime Loop is the **heart**, Execution ABI is the **arteries and veins**.
+
+---
+
+## 0. Overview
+
+The Execution ABI is a **lockstep contract** between:
+
+* **Producers**: players, AI agents, tools, AP triggers, network input
+* **Kernel**: RUNTIME_LOOP + ZON4D + AP + Anchors
+* **Performers**: renderer, audio engine, dialogue engine, animation, etc.
+
+Core Principle:
+
+> No system is allowed to mutate canonical state except via **ABI-compliant Delta submission into the Runtime Loop**, and no system reads state except via **ABI-compliant Snapshot queries or domain views**.
+
+This ABI enforces:
+
+* Enginebility guarantees (G1–G4, P1–P4, R1–R4).
+* Temporal Lockstep (no out-of-band time).
+* Auditability (replay, diff, forensic debugging).
+
+---
+
+## 1. Core Concepts & Objects
+
+### 1.1 Entities
+
+* **Engine Domain ID**
+  Logical source of mutations or queries, e.g.:
+  `player_client`, `agent_mrlore`, `agent_trae`, `ap_kernel`, `network_peer_01`, `editor_tool`.
+
+* **Channel**
+  A well-defined ABI surface for a particular purpose:
+
+  * `MUTATION_CHANNEL` – submit Deltas
+  * `OBSERVATION_CHANNEL` – get Snapshots/state views
+  * `AP_CHANNEL` – AP preflight/finalization hooks
+  * `PERFORMANCE_CHANNEL` – performance tasks & feedback
+  * `SIM_CHANNEL` – record/replay, simulation control
+
+### 1.2 Messages
+
+All ABI interactions are **message-based**, even if implemented as function calls in-process.
+
+Types:
+
+* `DeltaSubmission` – “I propose these Deltas.”
+* `SnapshotQuery` – “Give me state.”
+* `APQuery` – “Is this Delta/state allowed?”
+* `PerformanceTask` – “Render / play / speak / animate this.”
+* `SimControl` – “Start/stop/replay ticks with this script.”
+
+---
+
+## 2. Inbound ABI: Mutation Plane
+
+This is **how anything proposes a change** to the world.
+
+### 2.1 Delta Submission Contract
+
+**API Shape (conceptual):**
+
+```text
+submit_deltas(
+  domain_id: EngineDomainID,
+  deltas: [Delta],
+  mode: "immediate" | "next_tick" | "scheduled",
+  metadata: Dict
+) -> SubmissionResult
+```
+
+* `domain_id` – who is speaking (for causality/source_id).
+* `deltas` – fully specified Deltas (see Runtime Loop spec).
+* `mode`:
+
+  * `immediate`: enqueue into current Tick’s Step 2 (if window open).
+  * `next_tick`: guarantee they start at next Tick.
+  * `scheduled`: attach to temporal window (e.g., “no earlier than t=123”).
+
+**Rules:**
+
+1. **No raw state writes.** You cannot set `zon4d_state` directly. Only Deltas.
+2. **Structure must be canonical.** Any malformed Delta is rejected at Step 2 (R1).
+3. **Temporal metadata is mandatory.** Missing `temporal_index` or `temporal_scope` → reject (R4).
+4. **Upper-bounds apply per Tick.** The Delta limit (1,024 per Tick) is enforced regardless of source.
+5. **SubmissionResult** MUST include:
+
+   * accepted_count
+   * rejected_ids + reasons
+   * fenced_count (if any deferred to future Ticks)
+   * submission_tick_id hint (for replay)
+
+### 2.2 Priority & Fairness
+
+* Execution ABI does **not** prioritize sources by default.
+* Scheduling policies (e.g. “player > AI > network”) live in a separate **Scheduling Policy** layer, but MUST still call through this ABI.
+
+---
+
+## 3. Outbound ABI: Observation Plane
+
+This is **how anything sees state**.
+
+### 3.1 Snapshot Query
+
+Conceptual API:
+
+```text
+query_snapshot(
+  domain_id: EngineDomainID,
+  mode: "canonical" | "staged" | "historic",
+  selector: SnapshotSelector
+) -> SnapshotView
+```
+
+* `mode`:
+
+  * `canonical` – current canonical state after last completed Tick.
+  * `staged` – candidate state inside a Tick (debug/sim only).
+  * `historic` – snapshot at given Tick ID or Anchor ID.
+* `SnapshotSelector`:
+
+  * `by_tick_id`
+  * `by_anchor_id`
+  * `by_time_range` (for tools only; may return interval views, not raw state).
+
+**Rules:**
+
+1. Observation is **read-only**. Any attempt to mutate returns a breach-level error.
+2. Tools may be allowed to inspect `staged` state but **never** commit it.
+3. Historic queries must be bounded by retention policy (pruned Snapshots may be gone, but anchors remain).
+
+### 3.2 Domain Views
+
+Performers don’t need raw ZON4D; they need **views**:
+
+```text
+query_domain_view(
+  domain_id: EngineDomainID,
+  view: "narrative" | "spatial" | "audio" | "dialogue" | "animation" | "ap_rules",
+  tick_id: Optional[int]  # default: latest canonical
+) -> DomainView
+```
+
+* Each view is a *projection* derived in Step 7 (hydration).
+* If a non-critical domain is degraded, the view must indicate:
+
+  * `status: "degraded"`
+  * `reason: string`
+
+---
+
+## 4. AP Rule ABI (Oracle Law Interface)
+
+AP is both **client** and **guardian** of the Runtime Loop.
+
+### 4.1 Preflight ABI (Step 5)
+
+Conceptual calls:
+
+```text
+ap_preflight_delta(
+  snapshot: Snapshot,
+  delta: Delta,
+  ms_budget: int
+) -> APVerdict   # ACCEPT | REJECT | ARBITRATE | TIMEOUT
+
+ap_arbitrate_delta(
+  snapshot: Snapshot,
+  delta: Delta,
+  ms_budget: int
+) -> Optional[Delta]
+```
+
+Requirements:
+
+1. AP **must never** mutate `snapshot` directly.
+2. TIMEOUT is a valid and explicit verdict:
+
+   * In preflight, TIMEOUT == REJECT (plus CRITICAL alert).
+3. ARBITRATE may return:
+
+   * A new Delta (merged, resolved)
+   * `None` (treat as REJECT)
+
+### 4.2 Finalization ABI (Step 8)
+
+```text
+ap_finalize_snapshot(
+  snapshot: Snapshot,
+  ms_budget: int
+) -> APVerdict    # ACCEPT | REJECT | ARBITRATE | TIMEOUT
+
+ap_arbitrate_snapshot(
+  snapshot: Snapshot,
+  ms_budget: int
+) -> Optional[Snapshot]
+```
+
+Finalization rules:
+
+* TIMEOUT ⇒ CRITICAL breach, slow-path rollback, engine halt until operator intervention.
+* ARBITRATE must lead to **re-validation**; otherwise it’s not accepted.
+* Any AP-produced snapshot must still be valid ZON4D.
+
+---
+
+## 5. Performance ABI (Performer Engine)
+
+This defines how **runtime hands the baton** to the Performer Engine after Step 10–11.
+
+### 5.1 Performance Task Scheduling
+
+Conceptual call (from Runtime Loop to Performer):
+
+```text
+schedule_performance(
+  tick_id: int,
+  tasks: [PerformanceTask]
+) -> None
+```
+
+`PerformanceTask` examples:
+
+* `RenderTask`: camera updates, visible entities, shaders
+* `AudioTask`: play/stop/param-change with envelopes
+* `DialogueTask`: line ID, speaker, timing, emotional intensity
+* `AnimationTask`: pose blend, timeline slice, viseme curves
+
+Rules:
+
+1. Tasks MUST be derived from **diffs** between previous and current domain views.
+2. Tasks MUST reference **Tick ID** and, if temporal curves are used, a local performance time offset.
+3. Performer Engine is allowed to:
+
+   * Drop low-priority tasks if overloaded (but must log).
+   * Never bypass Runtime Loop and touch state.
+
+### 5.2 Performer Feedback
+
+Performer may emit **observation-only** events:
+
+```text
+performance_feedback(
+  domain_id: EngineDomainID,
+  tick_id: int,
+  metrics: Dict
+)
+```
+
+These metrics may be logged or fed to AP or agents, but **cannot** mutate canonical state by themselves. If they want to change future state, they must be converted into Deltas and submitted through `submit_deltas`.
+
+---
+
+## 6. Simulation ABI (Record / Replay / Tooling)
+
+This is the *forge* side: synthetic runs, deterministic replay, time-warp debugging.
+
+### 6.1 Record
+
+```text
+sim_record_session(
+  session_id: str,
+  config: Dict
+) -> SimHandle
+
+sim_record_event(
+  handle: SimHandle,
+  tick_id: int,
+  incoming_deltas: [Delta],
+  snapshot_id: str,
+  alerts: [Alert]
+) -> None
+```
+
+All ABI calls during a recording session must be loggable in a **replayable format** (Delta stream + timing metadata + AP verdicts).
+
+### 6.2 Replay
+
+```text
+sim_replay(
+  session_id: str,
+  mode: "full" | "delta_only",
+  speed: "real_time" | "fast_forward" | "step"
+) -> ReplayResult
+```
+
+Rules:
+
+* Replay mode must disable external inputs or route them through a **replay-safe channel**.
+* AP can be replayed in:
+
+  * **Strict mode** (must match original verdicts)
+  * **Probe mode** (compare new AP behavior to original run).
+
+---
+
+## 7. Temporal Lockstep ABI (Section 49)
+
+This is the **hard boundary** between kernel time and everything else.
+
+### 7.1 Tick Identity
+
+* Every ABI message that crosses into or out of the Runtime must be labeled with:
+
+  * `tick_id` (int, monotonic)
+  * `wall_clock` (for debug only)
+
+### 7.2 Lockstep Rules
+
+1. **No external component may run ahead of the kernel.**
+
+   * Queries for future Tick IDs are invalid.
+2. **No component may see a partially committed state** unless it is explicitly in `staged` debug mode.
+3. **All AP and performance decisions must be anchored to a specific Tick.**
+4. **Temporal Fences** must be observable through the ABI:
+
+   * e.g., `SubmissionResult.fenced_count`, `TickMetadata.temporal_fence=True`.
+
+### 7.3 Allowed Execution Modes
+
+* **Real-time**: Runtime Loop drives Ticks based on target Hz.
+* **Step-mode**: external tool calls `advance_tick()` explicitly; all ABI semantics remain identical.
+* **Replay-mode**: Ticks are reconstructed from recorded Delta streams; ABI is still used but with a replay controller in front.
+
+---
+
+## 8. Error & Breach Semantics (ABI Level)
+
+### 8.1 ABI Error Classes
+
+* `INVALID_MESSAGE` – malformed payload; reject request.
+* `UNAUTHORIZED_DOMAIN` – unknown or banned `domain_id`.
+* `TEMPORAL_VIOLATION` – request references future Tick or impossible time.
+* `CONTRACT_BREACH` – Runtime Loop has entered breach mode; only limited diagnostics allowed.
+
+Errors must never be silent; all ABI endpoints either:
+
+* Return success with payload, **or**
+* Return structured error, **or**
+* Trigger a **Runtime breach** handled via Loop’s breach system.
+
+### 8.2 Breach Propagation
+
+When Runtime Loop enters breach:
+
+* Mutation ABI endpoints must stop accepting new Deltas (except those explicitly tagged as “recovery” by operator tools).
+* Observation ABI may still allow read-only diagnostic queries (anchors, historic snapshots, logs).
+* Simulation ABI may be used to replay pre-breach history.
+
+---
+
+## 9. Compliance Criteria (Execution ABI)
+
+An implementation is **ABI-compliant** if:
+
+1. **All state mutations** flow through `submit_deltas` and then the RUNTIME_LOOP.
+2. **All state reads** use `query_snapshot` / `query_domain_view` or derived helpers.
+3. AP Rule Engine uses only the defined AP ABI and never mutates state directly.
+4. Performer Engine only consumes views and emits non-mutating feedback.
+5. Simulation/Tooling uses the SIM ABI and does not bypass the Runtime Loop.
+6. Temporal Lockstep constraints are enforced (no future reads, no out-of-band ticks).
+
+Non-compliant components are outside Enginality and may corrupt determinism, reversibility, or AP guarantees.
+
+---
+
+## 10. Next Steps (Dual Track)
+
+**Spec Track:**
+
+* Tie this ABI directly into:
+
+  * Section 24 (Oracle/AP)
+  * Section 31–34 (ZON4D temporal details)
+  * Section 22 (SceneTrack / Performer spec)
+
+**Implementation Track:**
+
+* Add thin wrapper functions on top of `EnginalityRuntime`:
+
+  * `submit_deltas()` as the only write entry.
+  * `query_snapshot()/query_domain_view()` as read entry.
+* Wrap current test harness inside a **SIM ABI** scaffold:
+
+  * record every Tick
+  * allow replay of the Delta streams you’re already generating.
+
+---
+
+If you want, next I can:
+
+* Wire this **ABI spec** back into the RUNTIME_LOOP doc as Section 49 “Temporal Lockstep ABI”,
+* Or jump straight to the **Performer Engine spec** (SceneTrack + Dialogue + Audio envelopes as a formal section).

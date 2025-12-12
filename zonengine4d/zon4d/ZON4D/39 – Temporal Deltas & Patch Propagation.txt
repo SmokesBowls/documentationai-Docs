@@ -1,0 +1,353 @@
+🔥 Hell yes, we’re in the fun zone now.
+
+This is the part where time stops being “frames” and becomes edits to reality.
+
+39 — TEMPORAL DELTAS & PATCH PROPAGATION
+
+ZON4D Specification v0.1 — Temporal Write Model
+
+Status: Design-Frozen, Impl-Open
+Depends on: Sections 24 (Schema Precedence), 25 (AP Snapshot Contract), 36–38 (Reconstruction, Stitching, Cache)
+
+39.0 Purpose
+
+ZON4D must support writing time, not just reading it.
+
+Temporal deltas are how:
+
+AP rules change state over time
+
+AI agents inject edits into existing timelines
+
+Predictive branches fork off from a shared past
+
+Patch bundles undo/redo world events
+
+You avoid rewriting entire snapshots for tiny changes
+
+This section defines:
+
+what a delta is,
+
+how it is represented,
+
+how it propagates into timelines,
+
+and how we guarantee determinism and schema integrity.
+
+39.1 Definitions
+
+39.1.1 Keyframe (Recap)
+
+From earlier sections:
+
+A keyframe is a full canonical state at a given time t, validated by ZW-H and ZON4D.
+
+It contains all required fields and any optional fields present at that time.
+
+It is the baseline for interpolation and reconstruction.
+
+39.1.2 Delta Frame
+
+A delta frame is a partial change set at time t:
+
+It does not represent full state.
+
+It only describes what changed relative to a known base.
+
+It is applied on top of a keyframe (or stitched snapshot) to produce a new logical state.
+
+Think:
+
+Keyframe = “what the world is”
+Delta = “what just changed”
+
+39.2 Delta Types
+
+ZON4D supports three canonical delta forms, all schema-checked:
+
+Replace Delta
+
+Directly replaces a field’s value.
+
+Example: health goes from 75 → 50 at t = 0.7.
+
+Add/Subtract (Numeric Delta)
+
+Applies numeric operations relative to current value.
+
+Example: +10 health, -0.3 trust.
+
+Structural Delta
+
+Modifies structured collections (lists, maps, sets).
+
+Example: add item to inventory, remove tag.
+
+Each is always typed and schema-validated.
+
+39.3 Canonical Delta Representation (ZONJ Level)
+
+At the ZONJ structure level, a delta frame is:
+
+{ "t": 0.7, "entity_id": "npc.guard_01", "delta": { "mode": "replace", // or "add", "struct" "fields": { "health": { "op": "replace", // "replace", "add" "value": 50 }, "trust": { "op": "add", "value": -0.3 }, "inventory": { "op": "struct", "add_items": ["POTION_SMALL"], "remove_items": ["KEY_RUSTED"] } } }, "meta": { "source": "AP_RULE:rage_hit_01", "cause": "combat", "branch_id": "timeline.main.branch_3", "nonce": "uuid-..." } } 
+
+Norms:
+
+t is mandatory.
+
+entity_id (or equivalent identity) is mandatory.
+
+delta.fields is keyed by schema-defined field names.
+
+No field outside ZW-H schema is allowed.
+
+39.4 Delta Application Order
+
+Deltas are applied in strictly deterministic order:
+
+Sort by t ascending.
+
+Within same t, sort by sequence_index (if present) or deterministic tie-breaker (e.g., deterministic hash of nonce).
+
+Apply in that order over the base state.
+
+Important:
+
+AP never directly applies deltas.
+
+AP asks for snapshots. ZON4D applies deltas internally before handing AP a resolved view.
+
+39.5 Delta vs Keyframe Precedence
+
+When reconstructing state at t:
+
+Find base keyframe K at or before t.
+
+Apply all relevant deltas in (K.t, t].
+
+Apply interpolation between keyframes if required (depending on field’s temporal mode).
+
+Result is the resolved snapshot.
+
+Precedence for a given field at t:
+
+Explicit value in snapshot/delta at t
+
+ZWH default value (if field missing and default defined)
+
+Temporal fallback (inherit from earlier keyframe)
+
+This matches the precedence chain you already locked:
+
+explicit > schema default > temporal fallback
+
+39.6 Delta Validation (Against ZW-H)
+
+Every delta must respect the underlying ZW-H schema:
+
+You cannot introduce new fields via delta.
+
+You cannot change type (int → string) – unless C1 override is active for that block and time-scope.
+
+Numeric operations must stay within constraints over the resulting value: 
+
+health after add must still be within min/max.
+
+Enum changes must still be in values.
+
+If a delta would produce invalid state:
+
+In strict mode: delta is rejected (hard error).
+
+In permissive mode: delta is ignored, and an error is logged/alerted.
+
+39.7 Delta Composability (Patch Sets)
+
+To support AI “bulk edits” and player actions:
+
+ZON4D defines Patch Sets:
+
+{ "patch_set_id": "combat_tick_0123", "time_span": [0.7, 0.75], "deltas": [ { /* delta #1 */ }, { /* delta #2 */ }, ... ], "meta": { "origin": "AP_RULE:apply_combat_tick", "branch_id": "timeline.main.branch_2" } } 
+
+Rules:
+
+A patch_set is atomic from AP’s perspective.
+
+All deltas inside must be applied or none.
+
+Validation occurs at patch-set level: 
+
+If any delta invalid → whole patch_set fails.
+
+This plays beautifully with AP’s transactional semantics.
+
+39.8 Temporal Deltas vs AP Writes
+
+AP never mutates ZON4D directly.
+
+Instead, AP:
+
+Evaluates rules over snapshots.
+
+Emits intents (Section 27 / AP spec): { "intent_type": "apply_temporal_patch", "target": "npc.guard_01", "time": 0.7, "changes": { "health": { "op": "add", "value": -25 }, "emotion": { "op": "replace", "value": "anger" } } } 
+
+The AP–ZON4D Bridge translates this into a ZON4D patch_set.
+
+ZON4D validates and commits or rejects it.
+
+That keeps your write path fully controlled.
+
+39.9 Delta vs Reconstruction
+
+Reconstruction (Section 37) solves:
+
+“What does the world look like at t, given a base + interpolation + inherited fields?”
+
+Temporal deltas solve:
+
+“How does the world change over time without writing full frames?”
+
+Interaction:
+
+Reconstruction uses keyframes + deltas + temporal rules.
+
+Delta application is logically just “extra keyframes with partial fields”.
+
+Reconstructed snapshot always sees deltad state.
+
+39.10 Delta Storage vs Snapshots
+
+To save space:
+
+Keyframes are relatively sparse (important states).
+
+Deltas are much more frequent but compact.
+
+On disk (ZONB):
+
+Keyframes stored as full objects (Section 13).
+
+Deltas stored in delta streams, grouped by entity or timeline segment.
+
+Each delta references its parent keyframe or segment index.
+
+In cache (Section 38):
+
+Once a snapshot is reconstructed, ZON4D caches the snapshot, not the raw delta chain.
+
+On cache eviction, only underlying keyframes + deltas remain.
+
+39.11 Conflict Handling (Multi-Writer)
+
+If two sources (e.g., AP and another agent) attempt to write deltas on the same entity & time span:
+
+ZON4D must apply a conflict policy, driven by AP/Engine config:
+
+Priority-Based
+
+Each writer has a priority. Higher wins.
+
+Clashing fields are taken from higher-priority patch set.
+
+Merge-With-Rules
+
+e.g., health changes are additive; emotion changes pick max-intensity.
+
+Hard-Conflict
+
+If conflicting fields occur, patch set fails.
+
+The spec requires:
+
+Conflict resolution must be deterministic given writer priorities + configured rules.
+
+No randomness allowed.
+
+39.12 Delta Idempotence
+
+To prevent double-apply bugs:
+
+Each patch_set and delta gets a stable ID.
+
+ZON4D keeps a short-term apply log per timeline: 
+
+(patch_set_id, branch_id, applied_at_version)
+
+If the same patch_set is seen twice:
+
+ZON4D must treat it as idempotent: ignore duplicate.
+
+This is huge for network retries, AI replay, and crash recovery.
+
+39.13 Example: Door with Event + Sound
+
+We’ll keep it conceptual here.
+
+At t = 2.0, door opens and triggers sound:
+
+{ "t": 2.0, "entity_id": "door.main_entrance", "delta": { "mode": "replace", "fields": { "open_state": { "op": "replace", "value": true } } }, "events": [ { "time_offset": 0.0, "event_type": "door/opened", "payload": { "door_id": "main_entrance" } }, { "time_offset": 0.05, "event_type": "audio/play", "payload": { "clip_id": "door_open_heavy", "volume": 0.8 } } ] } 
+
+ZON4D responsibilities:
+
+Apply the open_state delta.
+
+Schedule the events in its timeline/event system.
+
+Any AP rules listening on “door/opened” see this as state change + event, not raw delta.
+
+39.14 Example: Emotion Curve + Threshold Rule
+
+Your “if emotion crosses anger at t ≥ 0.6” example:
+
+Emotion curve is time series (from ZON4D temporal track).
+
+At some t = 0.65, AP queries snapshot, gets: emotion = anger.
+
+AP rule triggers and emits a delta intent to escalate dialogue.
+
+ZON4D logs:
+
+{ "t": 0.65, "entity_id": "npc.guard_01", "delta": { "mode": "replace", "fields": { "dialogue_state": { "op": "replace", "value": "escalated" } } }, "meta": { "source": "AP_RULE:anger_threshold_escalate", "cause": "emotion_crossed_threshold" } } 
+
+The emotion track is ZON4D’s concern.
+The resulting state change is encoded as a delta.
+
+39.15 Summary
+
+Deltas are partial, schema-validated change sets.
+
+They apply over keyframes and reconstructed snapshots.
+
+They are not snapshots; they produce snapshots.
+
+AP never processes raw deltas – only resolved state.
+
+Patch sets are atomic, idempotent, and conflict-resolved.
+
+Disk stores keyframes + delta streams; RAM stores snapshots + caches.
+
+This gives you:
+
+tiny write payloads
+
+massive temporal range
+
+full determinism
+
+clean separation of concerns
+
+a write model that can scale to AI-generated universes
+
+If you want to keep marching the “number path”:
+
+Next logical piece after deltas and cache is:
+
+40 — Temporal Locking & Concurrency (Multi-Agent Writes on Time)
+
+or
+
+40 — Undo/Redo & Time-Rewind Semantics (Player + AP safe rewinds)
+
+Pick one and we’ll keep carving the engine out of stone.
+

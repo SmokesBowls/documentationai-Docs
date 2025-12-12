@@ -1,0 +1,303 @@
+
+
+SECTION 34 — Temporal Snapshot Consolidation Layer (TSCL)
+
+(The missing link between 33 and 35, reconstructed cleanly and consistently with all ZON4D laws)
+
+
+---
+
+34.1 — Purpose of the TSCL
+
+The Temporal Snapshot Consolidation Layer is the first deterministic layer that forms a unified, engine-legible snapshot out of:
+
+raw ZON4D curve data,
+
+syncpoints (Section 31),
+
+canonical hashes (Section 32), and
+
+snapshot diff packages (Section 33).
+
+
+TSCL is where the engine transforms fragmented temporal information into a single canonical state object that can be used by:
+
+AP (logic rules),
+
+simulation layers,
+
+predictive sandbox (30),
+
+merge and retcon engines (29),
+
+reconstruction modules (35–37).
+
+
+This layer exists before stitching (Section 35) and after hashing/diffing (Sections 32–33).
+It produces the atomic snapshot used everywhere else.
+
+
+---
+
+34.2 — Inputs to Consolidation
+
+The TSCL consumes exactly four classes of data:
+
+1. Base Curve Sample Set (BCS)
+
+A consistent set of curve evaluations at time t:
+
+{ field_i : sample_value_i(t) }
+
+2. Syncpoint Anchor (SPA)
+
+The deterministic anchor for this snapshot, via Section 31 rules.
+
+3. Canonical Hash32 Bundle (H32)
+
+A hash bundle describing structural fidelity and value fidelity.
+
+4. Snapshot Diff Set (ΔS)
+
+The drift-corrected diff package derived from Section 33.
+
+
+---
+
+34.3 — Consolidation Contract
+
+The TSCL MUST:
+
+1. Resolve Conflicts Apply precedence rules (schema → default → retcon → diff → runtime).
+
+
+2. Normalize Types Convert all raw values into their declared ZW-H types.
+
+
+3. Eliminate Temporal Ambiguity Any field whose sample window contains:
+
+discontinuity (DZ1)
+
+derivative mismatch
+
+null region
+must be classified as ambiguous and resolved via fallback rules.
+
+
+
+4. Apply Drift Corrections Use ΔS(t) to adjust fields whose predicted values are outside the allowed envelope.
+
+
+5. Produce Exactly One Canonical Snapshot Every consolidation run must yield one deterministic, replayable state object.
+
+
+
+
+---
+
+34.4 — Canonical Snapshot Format (CSF)
+
+The TSCL outputs the CSF, a frozen representation:
+
+CSF = {
+    anchor_hash: H32(anchor),
+    fields: {
+        f1: canonical_value,
+        f2: canonical_value,
+        ...
+    },
+    drift_score: Σ field_drift_i,
+    flags: {
+        discontinuity: true/false,
+        retcon_region: {soft|medium|hard},
+        predictive_origin: true/false
+    }
+}
+
+Rules:
+
+No curves exist in the CSF.
+
+No derivatives.
+
+No raw multi-track data.
+
+Only stable values.
+
+
+This is the object AP receives through Section 25’s snapshot bridge.
+
+
+---
+
+34.5 — Drift Correction Rules
+
+A field must be corrected if:
+
+| predicted(t) - actual(t) | > envelope_limit
+
+Envelope limits come from:
+
+Section 27 (Error Surfaces)
+
+Section 33 (Drift Metrics)
+
+
+If corrected:
+
+Mark the field with drift_flag = true
+
+Recompute H32 for that field
+
+Log correction into Predictive Sandbox if enabled (Section 30)
+
+
+
+---
+
+34.6 — Syncpoint Enforcement
+
+The TSCL must validate:
+
+1. Anchor Validity
+
+If the incoming syncpoint hash does not match expected history → reject snapshot.
+
+2. Hash Lineage
+
+All child fields must hash consistently with their schema lineage rules (Section 32).
+
+3. Ordering Constraints
+
+TSCL must verify topological ordering (Section 28).
+It cannot consolidate a snapshot that violates the dependency DAG.
+
+
+---
+
+34.7 — Undefined Field Rules
+
+A field is undefined if:
+
+it has no valid sample at t,
+
+OR it lies entirely inside a DZ1 region,
+
+OR it is masked by a hard retcon.
+
+
+Undefined fields follow the fallback chain:
+
+default_value → inherited_value → null
+
+If null persists → field marked undefined = true.
+
+AP cannot see curve failures; it sees cleanly defined values or marked-undefined values.
+
+
+---
+
+34.8 — Consolidation Failure Modes
+
+The TSCL must fail cleanly (not partially) when:
+
+1. Syncpoint hash mismatch
+
+→ return CONS_FAIL_HASH.
+
+2. DAG violation
+
+→ return CONS_FAIL_TOPOLOGY.
+
+3. Retcon conflict
+
+(hard retcon vs active predictive branch)
+→ return CONS_FAIL_RETCON.
+
+4. Drift over threshold
+
+(where correction cannot stabilize)
+→ return CONS_FAIL_DRIFT.
+
+5. Missing mandatory fields
+
+→ return CONS_FAIL_SCHEMA.
+
+
+---
+
+34.9 — Consolidation Success Contract
+
+On success, TSCL guarantees:
+
+1. Determinism across runs
+
+
+2. Replay fidelity
+
+
+3. Schema compliance
+
+
+4. Temporal monotonicity
+
+
+5. Predictive branch isolation
+
+
+6. Hard retcon alignment
+
+
+7. Correct field canonicalization
+
+
+
+This is the layer that ensures time feels like a real, consistent dimension inside the engine.
+
+
+---
+
+34.10 — Relationship to Sections 35–37
+
+The TSCL is the input generator to the following layers:
+
+Section 35: Snapshot Stitching
+
+Section 36: Multi-Source Reconstruction
+
+Section 37: Timeline Reconstruction
+
+
+Without Section 34, these systems would receive inconsistent or partially raw data.
+
+This is why Section 34 must exist exactly between 33 (diff) and 35–37 (reconstruction logic).
+
+
+---
+
+🎯 SECTION 34 IS NOW FINISHED
+
+You now have the full and complete ZON4D timeline:
+
+33 — Snapshot Diff Metrics
+34 — Snapshot Consolidation Layer  ← now complete
+35 — Snapshot Stitching
+36 — Multi-Source Reconstruction
+37 — Timeline Reconstruction
+
+If you want, I can now:
+
+✔ Produce the complete master index
+
+✔ Generate official titles for each section 1–49
+
+✔ Normalize all filenames
+
+✔ Help you build the “ZON4D official spec folder”
+
+Just tell me:
+
+“Generate the master index”
+
+or
+“Rename all sections with official titles”

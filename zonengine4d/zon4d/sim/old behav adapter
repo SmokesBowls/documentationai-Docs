@@ -1,0 +1,349 @@
+# zonengine4d/zon4d/sim/behavior_adapter.py
+
+"""
+Behavior3D domain view + adapter.
+
+Bridges:
+- Pure kernel (behavior_mr.BehaviorAgent / step_agent)
+- Engine-facing concepts (BaseStateView, Delta, Alert, APViolation)
+- Other domains (spatial3d, perception3d, navigation3d)
+
+Public surface:
+    behavior = BehaviorStateView(initial_state)
+    behavior.set_inputs(spatial_state["spatial3d"], perception_state["perception3d"], navigation_state["navigation3d"])
+    deltas, alerts = behavior.step(current_tick)
+    new_behavior_state = behavior.save_to_state()
+"""
+
+from __future__ import annotations
+from typing import Dict, Any, List, Tuple, Optional
+from dataclasses import dataclass
+
+try:
+    from sim_imports import BaseStateView, Delta, Alert, APViolation
+except ImportError:
+    # Fallback for direct testing
+    class BaseStateView:
+        DOMAIN = ""
+        def __init__(self, state_slice: dict):
+            self._state_slice = state_slice
+        def save_to_state(self) -> dict:
+            return self._state_slice
+
+    class Delta:
+        def __init__(self, id: str, type: str, payload: dict, tags=None, priority: int = 0):
+            self.id = id
+            self.type = type
+            self.payload = payload
+            self.tags = tags or []
+            self.priority = priority
+
+    class Alert:
+        def __init__(self, level: str, step: int, message: str, tick: int, ts: float, payload=None):
+            self.level = level
+            self.step = step
+            self.message = message
+            self.tick = tick
+            self.ts = ts
+            self.payload = payload or {}
+
+    class APViolation(Exception):
+        pass
+
+import time
+from . import behavior_mr
+from .behavior_mr import BehaviorAgent, BehaviorConfig, BehaviorAction
+
+
+@dataclass
+class BehaviorAPConfig:
+    """Simple AP constraints for behavior sanity."""
+    max_intent: float = 1.0
+    max_alertness: float = 1.0
+    max_threat: float = 1.0
+
+
+class BehaviorStateView(BaseStateView):
+    """
+    Behavior3D domain view.
+
+    State slice format (stored in ZON/ZONB later, but currently Python dict):
+
+    {
+        "domain": "behavior3d",
+        "version": "0.1",
+        "config": { ... optional overrides ... },
+        "agents": {
+            "guard_01": {
+                "mode": "idle",
+                "intent": 0.0,
+                "alertness": 0.0,
+                "threat": 0.0,
+                "aggression": 0.8,
+                "caution": 0.4,
+                "persistence": 0.6,
+                "patrol_points": [...],
+                ...
+            },
+            ...
+        }
+    }
+    """
+
+    DOMAIN = "behavior3d"
+
+    def __init__(self, state_slice: Optional[dict] = None):
+        if state_slice is None:
+            state_slice = {
+                "domain": self.DOMAIN,
+                "version": "0.1",
+                "agents": {},
+                "config": {},
+            }
+        if "agents" not in state_slice:
+            state_slice["agents"] = {}
+        if "config" not in state_slice:
+            state_slice["config"] = {}
+
+        super().__init__(state_slice)
+
+        # Runtime-only references to other domains
+        self._spatial: Dict[str, Any] = {}
+        self._perception: Dict[str, Any] = {}
+        self._navigation: Dict[str, Any] = {}
+
+        # Config objects
+        self.behavior_cfg = self._build_behavior_config(state_slice.get("config", {}))
+        self.ap_cfg = BehaviorAPConfig()
+
+        # Internal counter for unique delta IDs
+        self._delta_counter = 0
+
+    # ------------------------------------------------------------------ #
+    # CONFIG
+    # ------------------------------------------------------------------ #
+
+    def _build_behavior_config(self, cfg: Dict[str, Any]) -> BehaviorConfig:
+        """Merge defaults with overrides (pure Python, ZW/ZON can hydrate later)."""
+        base = BehaviorConfig()
+        for field_name in BehaviorConfig.__dataclass_fields__.keys():
+            if field_name in cfg:
+                setattr(base, field_name, cfg[field_name])
+        return base
+
+    # ------------------------------------------------------------------ #
+    # INPUT ATTACHMENT
+    # ------------------------------------------------------------------ #
+
+    def set_inputs(
+        self,
+        spatial3d_slice: Dict[str, Any],
+        perception3d_slice: Dict[str, Any],
+        navigation3d_slice: Dict[str, Any],
+    ):
+        """
+        Attach domain slices for this tick.
+
+        The slices should be the *inner* domain dicts, e.g.:
+
+          spatial_state["spatial3d"]
+          perception_state["perception3d"]
+          navigation_state["navigation3d"]
+        """
+        self._spatial = spatial3d_slice or {}
+        self._perception = perception3d_slice or {}
+        self._navigation = navigation3d_slice or {}
+
+    # ------------------------------------------------------------------ #
+    # CORE STEP
+    # ------------------------------------------------------------------ #
+
+    def step(self, tick: int) -> Tuple[List[Delta], List[Alert]]:
+        """
+        Run behavior for all agents for this tick.
+
+        Returns:
+            deltas: engine Deltas to feed back into Navigation/Perception/etc.
+            alerts: runtime Alerts (including soft AP violations).
+        """
+        if not self._spatial:
+            # We can't do anything sensible without spatial
+            return [], [
+                Alert(
+                    level="warning",
+                    step=0,
+                    message="Behavior3D step skipped: no spatial3d slice attached",
+                    tick=tick,
+                    ts=time.time(),
+                )
+            ]
+
+        deltas: List[Delta] = []
+        alerts: List[Alert] = []
+
+        agents_dict = self._state_slice.get("agents", {})
+
+        # Run kernel for each agent
+        new_agents: Dict[str, dict] = {}
+        for agent_id, raw in agents_dict.items():
+            agent_obj = self._dict_to_agent(agent_id, raw)
+
+            spatial_slice = {
+                "entities": self._spatial.get("entities", {}),
+            }
+            perception_slice = self._perception.get(agent_id, {})
+            navigation_slice = self._navigation  # currently not decomposed per agent
+
+            updated_agent, actions = behavior_mr.step_agent(
+                agent=agent_obj,
+                tick=tick,
+                config=self.behavior_cfg,
+                spatial_slice=spatial_slice,
+                perception_slice=perception_slice,
+                navigation_slice=navigation_slice,
+            )
+
+            # AP sanity checks (soft)
+            alerts.extend(self._run_ap_checks(updated_agent, tick))
+
+            # Convert actions → Deltas
+            deltas.extend(self._actions_to_deltas(agent_id, actions))
+
+            new_agents[agent_id] = self._agent_to_dict(updated_agent)
+
+        # Persist updated agents
+        self._state_slice["agents"] = new_agents
+
+        return deltas, alerts
+
+    # ------------------------------------------------------------------ #
+    # AP CHECKS
+    # ------------------------------------------------------------------ #
+
+    def _run_ap_checks(self, agent: BehaviorAgent, tick: int) -> List[Alert]:
+        alerts: List[Alert] = []
+        if agent.intent > self.ap_cfg.max_intent + 1e-5:
+            alerts.append(
+                Alert(
+                    level="warning",
+                    step=0,
+                    message=f"Behavior3D AP: intent > {self.ap_cfg.max_intent} "
+                            f"for agent {agent.agent_id}",
+                    tick=tick,
+                    ts=time.time(),
+                    payload={"intent": agent.intent},
+                )
+            )
+        if agent.alertness > self.ap_cfg.max_alertness + 1e-5:
+            alerts.append(
+                Alert(
+                    level="warning",
+                    step=0,
+                    message=f"Behavior3D AP: alertness > {self.ap_cfg.max_alertness} "
+                            f"for agent {agent.agent_id}",
+                    tick=tick,
+                    ts=time.time(),
+                    payload={"alertness": agent.alertness},
+                )
+            )
+        if agent.threat > self.ap_cfg.max_threat + 1e-5:
+            alerts.append(
+                Alert(
+                    level="warning",
+                    step=0,
+                    message=f"Behavior3D AP: threat > {self.ap_cfg.max_threat} "
+                            f"for agent {agent.agent_id}",
+                    tick=tick,
+                    ts=time.time(),
+                    payload={"threat": agent.threat},
+                )
+            )
+        return alerts
+
+    # ------------------------------------------------------------------ #
+    # ACTION → DELTA TRANSLATION
+    # ------------------------------------------------------------------ #
+
+    def _next_delta_id(self, kind: str) -> str:
+        self._delta_counter += 1
+        return f"behavior3d_{kind}_{self._delta_counter}"
+
+    def _actions_to_deltas(
+        self,
+        agent_id: str,
+        actions: List[BehaviorAction],
+    ) -> List[Delta]:
+        deltas: List[Delta] = []
+        for act in actions:
+            if act.kind == "request_path":
+                d_type = "navigation3d/request_path"
+                tags = ["behavior3d", "navigation3d"]
+                priority = act.payload.get("priority", 1)
+            elif act.kind == "focus":
+                d_type = "perception3d/focus"
+                tags = ["behavior3d", "perception3d"]
+                priority = 0
+            elif act.kind == "tag_behavior":
+                d_type = "behavior3d/state_sample"
+                tags = ["behavior3d", "debug"]
+                priority = -1
+            else:
+                # Unknown kind: encode under generic behavior3d namespace
+                d_type = f"behavior3d/{act.kind}"
+                tags = ["behavior3d"]
+                priority = act.payload.get("priority", 0)
+
+            delta = Delta(
+                id=self._next_delta_id(act.kind),
+                type=d_type,
+                payload=act.payload,
+                tags=tags,
+                priority=priority,
+            )
+            deltas.append(delta)
+        return deltas
+
+    # ------------------------------------------------------------------ #
+    # STATE (DE)SERIALIZATION
+    # ------------------------------------------------------------------ #
+
+    def _dict_to_agent(self, agent_id: str, data: Dict[str, Any]) -> BehaviorAgent:
+        """Build BehaviorAgent from raw state dict."""
+        return BehaviorAgent(
+            agent_id=agent_id,
+            intent=float(data.get("intent", 0.0)),
+            alertness=float(data.get("alertness", 0.0)),
+            threat=float(data.get("threat", 0.0)),
+            aggression=float(data.get("aggression", 0.5)),
+            caution=float(data.get("caution", 0.5)),
+            persistence=float(data.get("persistence", 0.5)),
+            mode=str(data.get("mode", "idle")),
+            mode_enter_tick=int(data.get("mode_enter_tick", 0)),
+            target_id=data.get("target_id"),
+            last_seen=dict(data.get("last_seen", {})),
+            last_seen_pos={
+                k: tuple(v) for k, v in data.get("last_seen_pos", {}).items()
+            },
+            patrol_points=[tuple(p) for p in data.get("patrol_points", [])],
+            patrol_index=int(data.get("patrol_index", 0)),
+            last_action_tick=dict(data.get("last_action_tick", {})),
+        )
+
+    def _agent_to_dict(self, a: BehaviorAgent) -> Dict[str, Any]:
+        """Convert BehaviorAgent back into plain dict for persistence / ZON."""
+        return {
+            "intent": a.intent,
+            "alertness": a.alertness,
+            "threat": a.threat,
+            "aggression": a.aggression,
+            "caution": a.caution,
+            "persistence": a.persistence,
+            "mode": a.mode,
+            "mode_enter_tick": a.mode_enter_tick,
+            "target_id": a.target_id,
+            "last_seen": dict(a.last_seen),
+            "last_seen_pos": {k: list(v) for k, v in a.last_seen_pos.items()},
+            "patrol_points": [list(p) for p in a.patrol_points],
+            "patrol_index": a.patrol_index,
+            "last_action_tick": dict(a.last_action_tick),
+        }

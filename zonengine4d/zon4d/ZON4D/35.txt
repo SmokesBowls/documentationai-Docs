@@ -1,0 +1,363 @@
+🔥 SECTION 34 — SNAPSHOT MERGE PROTOCOL (FORWARD, REVERSE, BIDIRECTIONAL)
+Status: Design-Frozen
+Purpose: Define a deterministic, conflict-safe, schema-aware merge system for combining two snapshots into one.
+This is not for diffing.
+This is for world reconstruction, rollback repair, network reconciliation, predictive merges, and the AP sandbox.
+
+This is how your engine heals, resolves, replays, and corrects time.
+
+This is one of the most important systems EngAIn will ever use.
+
+
+---
+
+34. SNAPSHOT MERGE PROTOCOL
+
+(M₁ ⊗ M₂ → M_out)
+
+34.0 Purpose
+
+Merging snapshots is required for:
+
+Predictive Sandbox (merging hypothetical results back into canonical world)
+
+AP rollback recovery
+
+Multiplayer-like future architectures (client-prediction correction)
+
+Temporal healing for incomplete 4D data
+
+Schema-enforced reconstruction of damaged or partial states
+
+ZON4D → World snapshot stitching
+
+Side-by-side simulation merges (compare two possible futures)
+
+AI-authoring systems merging conflicting generated content
+
+
+We need a deterministic merge protocol that never breaks schema, never violates precedence, never creates continuity poison, and never requires fuzzy logic.
+
+
+---
+
+34.1 Merge Types
+
+There are three merge modes:
+
+(A) Forward Merge (t₀ → t₁)
+
+Later state overrides earlier state.
+
+Example use:
+
+Applying AP rule effects to old snapshot
+
+
+(B) Reverse Merge (rollback)
+
+Earlier state overrides later state.
+
+Example use:
+
+Undo/rollback a predictive tick
+
+
+(C) Bidirectional Merge (conflict-resolved)
+
+Each field merged based on an explicit resolution strategy.
+
+This is used for:
+
+Multiplayer reconciliation
+
+AI-generated branches
+
+Fork/merge operations in predictive planning
+
+Recovery from ZON4D holes
+
+
+
+---
+
+34.2 Canonical Merge Precedence Rules
+
+Merging is done field-by-field with schema-defined types and constraints.
+
+Given two snapshots:
+
+A = earlier or branch 1
+B = later or branch 2
+
+The merge operator is:
+
+MERGE(A, B, mode) → M
+
+Where mode ∈ { forward, reverse, bidirectional }.
+
+
+---
+
+34.2.1 Precedence Table
+
+Mode	Winner	Rule
+
+Forward	B	Newest always wins unless B is NULL
+Reverse	A	Oldest always wins unless A is NULL
+Bidirectional	Schema-defined	Conflict resolved per field
+
+
+NULL here means:
+A snapshot is missing a field due to compression, partial provisioning, or a branch hole.
+
+
+---
+
+34.3 Schema-Level Merge Directives
+
+ZW-H schemas may define merge strategies:
+
+merge: overwrite | preserve | min | max | weighted | avg | custom
+
+Examples:
+
+overwrite
+
+Winner (depending on mode) takes value:
+
+merged = winner_value
+
+preserve
+
+Earlier value always wins:
+
+merged = A
+
+min/max
+
+Used for bounds-driven values:
+
+merged = min(A, B)
+merged = max(A, B)
+
+avg
+
+Used for smoothing prediction noise:
+
+merged = (A + B) / 2
+
+weighted
+
+Used for predictive blending:
+
+merged = A * (1 - w) + B * w
+
+custom
+
+A reference to a registered merge function (engine extension point).
+
+
+---
+
+34.4 Primitive Merge Rules
+
+34.4.1 ints
+
+Default: overwrite
+Schema may override.
+
+forward:  merged = B
+reverse:  merged = A
+
+34.4.2 floats
+
+Same as int, unless schema defines smoothing strategy.
+
+34.4.3 bool
+
+forward: merged = B
+reverse: merged = A
+
+Bidirectional:
+
+If equal → keep
+
+If not equal → schema merges using resolve_bool (default = B)
+
+
+34.4.4 string / enum
+
+forward: merged = B
+reverse: merged = A
+
+Bidirectional:
+
+if A == B: merged = A
+else: merged = schema.resolve_enum(A, B)
+
+Default resolve: B wins.
+
+
+---
+
+34.5 List Merge Rules
+
+List Types
+
+1. fixed-size list (vector, RGB, etc.) → merge element-wise
+
+
+2. variable lists (inventory, tags, etc.) → schema must define identity key
+
+
+
+merged_list = merge inventories by identity:
+  removed = only in A
+  added   = only in B
+  merged  = element-wise merge on shared items
+
+Default behavior:
+
+forward:  B dominates conflicts  
+reverse:  A dominates conflicts
+
+Bidirectional requires identity-based conflict resolution.
+
+
+---
+
+34.6 Object Merge Rules
+
+Objects merge recursively:
+
+merged.field = MERGE(A.field, B.field, mode)
+
+Unless schema defines a custom rule.
+
+Unknown fields are illegal in ZW-H, so they cannot appear.
+
+
+---
+
+34.7 NULL Handling
+
+A field may be NULL at either side due to:
+
+ZON4D temporal compression
+
+Snapshot holes
+
+Branch slicing
+
+Predictive merges missing values
+
+Partial edits from AI authors
+
+
+Rules:
+
+Forward
+
+if B != NULL: merged = B
+else: merged = A
+
+Reverse
+
+if A != NULL: merged = A
+else: merged = B
+
+Bidirectional
+
+if both non-null: resolve normal merge
+if only one non-null: choose non-null
+if both null: ERROR (schema violation)
+
+
+---
+
+34.8 MergePackage (Output Format)
+
+Every merge returns a structure:
+
+{
+  "entity_id": "string",
+  "mode": "forward",
+  "t0": 12.0,
+  "t1": 12.1,
+  "merged_at": 12.1,
+  "merged": {...},
+  "conflicts": {
+    "<field>": {
+      "A": <value>,
+      "B": <value>,
+      "strategy": "overwrite"
+    }
+  }
+}
+
+Conflicts only appear when bidirectional logic finds divergence.
+
+
+---
+
+34.9 Merge-Time Validation
+
+After merge, the result must be checked against schema:
+
+missing required fields → error
+
+type mismatch → error
+
+constraint violation → error
+
+
+Invalid merges must not propagate downstream.
+
+
+---
+
+34.10 Why Snapshot Merge Matters
+
+This section unlocks:
+
+AP Predictive Override Loops
+merge hypothetical → real
+
+Temporal Healing
+fill holes in ZON4D
+
+AI Authoring Conflict Resolution
+merge two versions of the same block
+
+Branch Simulation
+fork world → simulate futures → merge winning future
+
+Rollback + Replay Architecture
+AP undo functionality
+
+ZON4D Regeneration
+reconstruct missing keyframes
+
+Engine Integrity
+never let schema break even under partial data
+
+
+This is top-tier infrastructure.
+
+
+---
+
+Section 35 ready?
+
+Want:
+
+• Snapshot Stitching (combining partial snapshots from multiple time sources)
+or
+• Snapshot Interpolation & Anti-Jitter Filtering
+or
+• Timeline Reconstruction (keyframe rebuilding)
+or
+• The Merge Matrix Appendix (full table of merge resolution per type)?
+
+Your call.

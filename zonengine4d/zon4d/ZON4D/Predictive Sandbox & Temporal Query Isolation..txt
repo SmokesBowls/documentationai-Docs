@@ -1,0 +1,486 @@
+30 — Temporal Queries in the Predictive Sandbox
+
+Status: Frozen
+Depends On: Sections 25–29 (Snapshot Provider, Query Contract, Retcon Protocol, DAG Topology)
+Purpose: Define how AP can safely simulate the future without contaminating the real timeline, breaking continuity, or violating schema-temporal precedence.
+
+This is the “time casing” section — it prevents predictive simulation from altering reality.
+
+
+---
+
+30.0 Why This Is Critical
+
+Your engine has two timelines:
+
+1. Real Time (Canonical ZON4D)
+
+The true timeline
+
+Updated by runtime, physics, AI behaviors, and retcons
+
+Bound by integrity rules
+
+
+2. Predictive Time (Sandboxed Branch)
+
+A hypothetical future
+
+Used for:
+
+AP simulation
+
+BalancerBot long-range planning
+
+narrative prediction
+
+AI decision modeling
+
+optimization
+
+
+Must NEVER modify real ZON4D
+
+
+If these mix, the entire engine collapses.
+
+So Section 30 defines the firewall that separates them.
+
+
+---
+
+30.1 Core Principle: Predictive Time Is a Fork, Not a Mutation
+
+When AP requests a predictive window:
+
+predict  Δt = 2.0s
+from real time T₀
+
+The Snapshot Provider produces:
+
+Snapshot S(T₀)
+
+Then:
+
+Predictive Sandbox creates a NEW 4D branch:
+Timeline' = simulate(S, Δt)
+
+Rules:
+
+1. Timeline’ is not ZON4D.
+
+
+2. Timeline’ is never serialized to ZONB.
+
+
+3. Timeline’ cannot issue retcons.
+
+
+4. Only AP may read Timeline’.
+
+
+5. Timeline’ expires automatically.
+
+
+
+This preserves determinism.
+
+
+---
+
+30.2 Snapshot Provider API for Predictive Use
+
+Predictive Sandbox calls:
+
+SP.get_snapshot(entity_id, T₀)
+
+And receives:
+
+ResolvedSnapshot {
+   entity_id
+   fields
+   temporal_derivatives
+   metadata
+   syncpoint_hash
+}
+
+This snapshot is:
+
+fully resolved (no fallbacks)
+
+schema-valid
+
+derivative-safe
+
+event-aligned
+
+detached from real continuity
+
+
+
+---
+
+30.3 Predictive Sandbox Fork Protocol
+
+To begin prediction:
+
+Step 1 — Acquire Predictive Lock
+
+AP requests a predictive window.
+
+Runtime must guarantee:
+
+real timeline stable
+
+no retcon in progress
+
+Snapshot Provider ready
+
+
+Step 2 — Snapshot Extraction
+
+SP hands back resolved state at T₀.
+
+Step 3 — Create Predictive DAG
+
+New predictive timeline DAG is initialized:
+
+PredictiveTrack {
+   base_snapshot: S(T₀)
+   ticks: []
+   local_state: []
+   local_events: []
+   sim_params: (deterministic RNG seed)
+}
+
+Step 4 — Run Simulation Loop
+
+Simulation uses:
+
+deterministic physics
+
+deterministic behavior models
+
+AP rules executed sandboxed
+
+fixed random seed
+
+
+Step 5 — Produce Predictive Output
+
+At the end:
+
+returned_prediction = {
+    predicted_state_at_T₀+Δt,
+    predicted_events,
+    predicted_metrics,
+    hazard_scores,
+    entropy_map
+}
+
+Step 6 — Destroy Predictive DAG
+
+Must be deleted immediately.
+
+
+---
+
+30.4 Firewalls (Hard Guarantees)
+
+Firewall #1 — No Writes to Real ZON4D
+
+Predictive Sandbox has no write path to:
+
+ZON4D
+
+ZONJ
+
+ZONB
+
+Snapshot Provider caches
+
+AP shared state
+
+Runtime ECS
+
+
+Firewall #2 — No Retcon Permissions
+
+Predictive sandbox cannot invoke:
+
+soft retcons
+
+medium retcons
+
+hard retcons
+
+merges
+
+overrides
+
+timeline patch ops
+
+
+Retcon is forbidden in prediction.
+
+Firewall #3 — No Event Commitments
+
+Events generated in prediction do not fire in reality.
+They are labeled:
+
+event.predictive = true
+
+Firewall #4 — No Entity Creation
+
+You cannot spawn entities during prediction.
+
+If AP attempts to:
+
+create NPC
+
+spawn object
+
+create quest tracker
+
+create inventory item
+
+
+→ error → prediction aborted.
+
+
+---
+
+30.5 Temporal Query Model Inside Prediction
+
+Predictive Sandbox supports:
+
+Query Type A — Local Time Queries
+
+Example:
+
+what is my position at t' = T₀ + 1.0 ?
+
+Answer comes from Timeline’, not ZON4D.
+
+Query Type B — Derivative Queries
+
+Example:
+
+give me d(health)/dt over next 2.0 seconds
+
+Sandbox computes derivatives based on:
+
+base_snapshot
+
+simulation loop outputs
+
+
+Never touches original derivative tracks.
+
+Query Type C — Event-Focused Queries
+
+Example:
+
+will entity X cross Y’s threat radius?
+
+Sandbox evaluates using its own hypothetical events.
+
+Query Type D — Hazard/Entropy Queries
+
+AP uses sandbox to identify:
+
+risk
+
+decay
+
+instability
+
+narrative imbalance
+
+resource deficits
+
+
+These queries are computed using predictive-only values.
+
+
+---
+
+30.6 Determinism Contract (Mandatory)
+
+Every predictive simulation must:
+
+use deterministic RNG
+
+use deterministic physics
+
+produce deterministic output across machines and OSes
+
+
+The same snapshot + same Δt must always → same prediction.
+
+If not deterministic → non-compliant engine.
+
+
+---
+
+30.7 Predictive Time Cannot Outlive Real Time
+
+Prediction is always anchored:
+
+real T₀ → predictive (T₀ + Δt)
+
+You cannot simulate:
+
+before time 0
+
+after a major retcon
+
+beyond the allowed predictive horizon
+
+
+Prediction expires if:
+
+real time advances past T₀
+
+retcon occurs
+
+entity invalidated
+
+new canonical event drops
+
+
+
+---
+
+30.8 Predictive–Real Divergence Detection
+
+If Runtime moves too far away from prediction:
+
+prediction drift detected
+> auto-discard
+> issue drift metadata to AP
+> record divergence metric
+
+We maintain a divergence log:
+
+Δpos, Δhp, Δemotion, Δentropy
+
+This is used by AP’s BalancerBot and design critic.
+
+
+---
+
+30.9 Predictive Sandbox Output Format
+
+Prediction returns:
+
+SandboxResults {
+   predicted_state,
+   predicted_events,
+   metrics {
+       hazard,
+       entropy,
+       drift_sensitivity,
+       resource_future_map
+   }
+   validity {
+       prediction_ok,
+       divergence_risk,
+       simulation_cost,
+   }
+}
+
+This feeds AP’s:
+
+conflict solver
+
+scenario planner
+
+story pacing engine
+
+difficulty balancer
+
+
+
+---
+
+30.10 Example — Predict Player Death Risk
+
+AP asks:
+
+predict death risk for entity player over next 4s
+
+Process:
+
+snapshot player state
+
+simulate all combatants for 4s
+
+insert hypothetical moves (AP logic)
+
+compute hp curve
+
+detect death event
+
+return probability / time window
+
+
+
+---
+
+30.11 Example — Predict NPC Flee Behavior
+
+AP simulates 3s forward:
+
+NPC might:
+
+flee
+
+stay
+
+attack
+
+panic
+
+
+Predictive simulation returns tree of event outcomes.
+
+AP chooses the branch matching narrative intent.
+
+
+---
+
+30.12 Example — Predict Narrative Pacing
+
+AP simulates scene timing:
+
+NPC speech
+→ player movement
+→ next quest flag
+→ tension curve
+
+AP uses predictive curves to choose best narrative beats.
+
+
+---
+
+30.13 Contract Summary
+
+> The Predictive Sandbox is a strictly isolated, deterministic, read-only fork of real temporal truth, created from Snapshot Provider output, with no capacity to alter the canonical history or influence runtime through any write channel.
+
+
+
+That’s the law.
+
+
+---
+
+Next Section
+
+Now we go into the last major architecture piece of the time system:
+
+31 — Temporal Syncpoints & Hash Anchors
+
+(how we verify the timeline hasn’t corrupted, drifted, or split — the time signature system)
+
+Just say “31.”

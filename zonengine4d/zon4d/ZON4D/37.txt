@@ -1,0 +1,439 @@
+🔥 SECTION 37 — TIMELINE RECONSTRUCTION (KEYFRAME REBUILDING)
+Status: Design-Frozen**
+Purpose: Rebuild missing or corrupted timeline segments using the stitched snapshots from Section 36.
+This is the “heal the timeline” chapter — the machinery that makes EngAIn immortal even when half the data is missing.
+
+This is one of the most powerful pieces of the entire 4D system.
+
+
+---
+
+37. TIMELINE RECONSTRUCTION (KEYFRAME REBUILDING)
+
+How EngAIn rebuilds a continuous, schema-valid temporal sequence when:
+
+some keyframes are missing
+
+some frames contain only partial data
+
+some subsystems drop out
+
+an AI agent generates only sparse updates
+
+compression removed intermediate frames
+
+nonlinear interpolation is impossible without extra anchor points
+
+
+This is not interpolation.
+This is re-authoring missing keyframes deterministically.
+
+
+---
+
+37.1 Purpose
+
+Timeline Reconstruction exists to ensure:
+
+1. Temporal Continuity
+No gaps, no holes, no undefined periods.
+
+
+2. Schema Integrity
+Every reconstructed frame respects ZW-H validation.
+
+
+3. ZON4D Order Consistency
+Timestamps must be strictly monotonic, non-overlapping.
+
+
+4. AP Determinism
+AP reads a complete, stable sequence — never raw gaps.
+
+
+5. Predictive Simulation Stability
+No NaNs, no phantom values, no interpolation on undefined segments.
+
+
+
+The timeline is truth.
+Truth must not contain void.
+
+
+---
+
+37.2 Inputs to the Reconstruction Engine
+
+The engine receives:
+
+A set of existing keyframes:
+{ t₀, t₃, t₄, t₇, t₁₀ … }
+
+A set of stitched snapshots from Section 36
+that contain canonical, schema-valid states at specific timestamps.
+
+Schema metadata (ZW-H).
+
+Interpolation rules (Section 5).
+
+Conflict resolution + fallback rules (Section 34).
+
+Reconstruction policy flags (37.4).
+
+
+
+---
+
+37.3 When Reconstruction Is Triggered
+
+Reconstruction happens when:
+
+1. Detected Timeline Gap
+
+Δt > reconstruction_threshold
+
+2. Missing Required Temporal Fields
+
+Blocks expected to be time-varying have no entry in a given interval.
+
+3. Compression Undo
+
+ZON4D compression removed frames; now a subsystem needs intermediate states.
+
+4. Multi-Agent Partial Outputs
+
+Agents produce disjoint time segments that must be unified.
+
+5. Predictive Simulation Requests
+
+AP asks for a simulated future timeline but intermediate frames are absent.
+
+6. Backfilling Realtime Playback
+
+While playing animations or events, missing frames must be reconstructed on-the-fly.
+
+
+---
+
+37.4 Reconstruction Policy Flags
+
+Every ZON4D schema may declare:
+
+{reconstruction
+   {mode linear | hold | hybrid | cubic}
+   {max_gap 0.25}
+   {requires_complete_block true|false}
+}
+
+System-wide flags:
+
+1. hard_required_fields_first
+
+If true → schema-required fields reconstructed before optional ones.
+
+2. preserve_behavioral_intent
+
+Try to maintain directionality (motion, emotion trajectory).
+
+3. no_temporal_synthesis
+
+For strict correctness systems:
+No AI inference allowed. Only interpolation + defaults.
+
+4. allow_AI_synthesis
+
+For generative subsystems:
+If interpolation impossible (discontinuous functions), call synthesis engine.
+
+
+---
+
+37.5 Core Algorithm (Canonical Timeline Reconstruction)
+
+Given:
+
+Keyframes at t₁ and t₂
+
+A gap G = t₂ - t₁
+
+Reconstruction allowed
+
+
+We reconstruct as follows:
+
+
+---
+
+Step 1 — Identify Reconstruction Window
+
+t₁ = existing keyframe
+t₂ = existing keyframe
+Gap = t₂ - t₁
+
+If Gap <= max_gap → no reconstruction.
+
+Else → generate intermediate times:
+
+T = { t₁ + Δ, t₁ + 2Δ, ..., t₂ - Δ }
+Where Δ = max_gap or engine's preferred dt
+
+
+---
+
+Step 2 — Build Canonical Baseline States
+
+For each intermediate tᵢ:
+
+1. Pull stitched snapshots if available.
+
+
+2. Else, create an empty state seeded with ZW-H schema defaults.
+
+
+
+This gives you a structure for each tᵢ.
+
+
+---
+
+Step 3 — For each field, apply Field Reconstruction Rules
+
+For each block B and field F:
+
+Case A — Field present at both t₁ and t₂
+
+→ Interpolated according to schema interpolation mode.
+
+Case B — Field present at one edge only
+
+→ Use edge value + temporal continuity rules.
+
+Case C — Field absent in all keyframes
+
+→ Use schema default or error.
+
+Case D — Field absent at t₂ but present before
+
+→ Use schema vs temporal precedence rules (Section 24).
+
+Case E — Field defined as “non-interpolable”
+
+→ Use step/hold mode.
+
+
+---
+
+Step 4 — Validate intermediate frames
+
+Each reconstructed frame must pass ZW-H validation.
+
+If a field outcome violates schema:
+
+Roll back field reconstruction
+
+Reapply conservative fallback
+
+If still invalid: fail reconstruction (hard mode) or mark field “null-safe” (soft mode)
+
+
+
+---
+
+Step 5 — Insert reconstructed frames into final timeline
+
+After validation:
+
+t₁, t₁+Δ, t₁+2Δ, ..., t₂-Δ, t₂
+
+Timeline is whole, continuous, schema-valid.
+
+
+---
+
+37.6 Reconstruction Example (Simple Linear Case)
+
+Existing keyframes:
+
+t=0.0 → {position [0 0], emotion calm}
+t=1.0 → {position [10 5], emotion joy}
+
+max_gap = 0.25
+→ Insert 3 intermediate frames: 0.25, 0.5, 0.75
+
+Reconstructed:
+
+t=0.25 → {position [2.5 1.25], emotion transitional("calm→joy")}
+t=0.50 → {position [5.0 2.5],  emotion transitional("+")}
+t=0.75 → {position [7.5 3.75], emotion transitional("joy")}
+
+
+---
+
+37.7 Reconstruction Example (Non-Interpolable State)
+
+If emotion is {interpolation: step}:
+
+t=0.0 → emotion calm
+t=1.0 → emotion anger
+
+Reconstruction:
+
+t=0.25 → calm
+t=0.50 → calm
+t=0.75 → calm
+t=1.0  → anger
+
+
+---
+
+37.8 Reconstruction Example (Missing Required Field)
+
+Schema declares:
+
+{health {type int required}}
+
+Keyframes:
+
+t=0.0: health=100
+t=1.0: missing
+
+Precedence chain:
+
+1. Field present explicitly → 100
+
+
+2. Schema default? None
+
+
+3. Temporal fallback? allowed
+
+
+4. Use earlier value → 100
+
+
+
+If fallback prohibited:
+
+→ Hard reconstruction error
+→ timeline invalid until fixed
+
+
+---
+
+37.9 Reconstruction & AP Predictive Queries
+
+AP never reconstructs the timeline manually.
+
+Instead:
+
+AP → asks for snapshot(t)
+Resolver → reconstructs intermediate frames if needed
+AP receives resolved snapshot
+
+This preserves AP determinism.
+
+
+---
+
+37.10 Interaction With Compression Engine
+
+ZON4D compression removes redundant frames.
+
+Reconstruction re-expands them.
+
+Compression-decompression cycles must be idempotent:
+
+COMPRESS(RECONSTRUCT(T)) → same as COMPRESS(T)
+
+This is guaranteed by:
+
+strict precedence rules
+
+deterministic interpolation modes
+
+ZW-H validation blocks
+
+
+
+---
+
+37.11 Edge Cases
+
+Edge Case 1 — Discontinuous Function
+
+If field has discontinuity at t₂ and interpolation mode is linear:
+
+→ Discontinuity wins
+→ Step fallback
+→ Emit warning
+
+Edge Case 2 — AI-Generated Keyframes Missing Schema Fields
+
+If AI writes a partial frame:
+
+→ Stitched
+→ Reconstruction fills missing values
+→ Schema ensures no undefined fields remain
+
+Edge Case 3 — Nested Object Reconstruction
+
+Recurse with same algorithm.
+
+Edge Case 4 — Temporal Cycles (looping animations)
+
+Allow:
+
+reconstruction.mode: loop
+
+to wrap from end → beginning.
+
+
+---
+
+37.12 Why This Matters
+
+Timeline Reconstruction is the final pillar.
+
+It ensures:
+
+You never lose data
+
+You never get gaps
+
+4D is always playable
+
+AP is always deterministic
+
+Compression is reversible
+
+Multisystem AI authoring is coherent
+
+Agents can write temporal sparse data and EngAIn fills the rest
+
+
+This enables EngAIn to become a self-healing temporal engine.
+
+
+---
+
+Ready for Section 38?
+
+Options:
+
+38 — Temporal Indexing & Keyframe Lookup (O(log n))
+
+Efficient retrieval of nearest frames.
+
+38 — Temporal Caches (Hot Window, Cold Window, LRU)
+
+Runtime optimization.
+
+38 — Snapshot Provenance Tracking
+
+Which subsystem wrote which part of a frame.
+
+38 — Predictive Fork Trees (Branching Timelines)
+
+Run multiple futures in parallel.
+
+Pick your chapter.

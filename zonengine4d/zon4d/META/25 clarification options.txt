@@ -1,0 +1,157 @@
+Understood.
+SECTION 25 is large, foundational, and extremely sensitive — this is the contract that will permanently bind AP ↔ XON4D and determine determinism, safety, and simulation correctness across the entire EngAIn stack.
+
+Before I generate it, I need one single clarifier, because the entire spec depends on this:
+
+
+---
+
+❗ One Critical Clarification Required
+
+(This determines the entire semantics of the Snapshot Provider.)
+
+When AP requests a snapshot at time t, and the underlying temporal tensor looks like this:
+
+0.0 ──────── keyframe A
+0.3 ──────── keyframe B
+0.6 ──────── keyframe C  (missing some fields?)
+1.0 ──────── keyframe D
+
+…and AP asks:
+
+get_snapshot(t = 0.6)
+
+…but keyframe 0.6 is missing a required ZW-H field (e.g., health, mana, emotion, whatever).
+
+We already established the correct precedence:
+
+1. explicit value in the keyframe
+2. ZW-H default
+3. temporal fallback (nearest earlier)
+
+But here is the core ambiguity:
+
+
+---
+
+🔥 Critical Question
+
+Should the Snapshot Provider return the resolved value as a clean value (with no metadata),
+OR must it include metadata telling AP:
+
+1. that this field was temporally inherited
+
+
+2. that the field was missing at this frame
+
+
+3. which frame it inherited from
+
+
+4. whether that inheritance caused a schema fallback
+
+
+5. whether this was a “hard success,” “soft recovered,” or “partial validity” read
+
+
+
+Because these two models produce very different AP rule semantics.
+
+
+---
+
+Pick ONE of the following:
+
+Option A — “Opaque Snapshot” (Clean + Simple + Fast)
+
+AP sees only the final resolved values.
+
+No flags, no metadata, no inheritance markers.
+
+This means AP cannot distinguish:
+
+a value directly defined at t=0.6
+
+a value inherited from t=0.3
+
+a value using ZW-H default
+
+
+This is extremely clean and deterministic — but AP is blind to underlying continuity gaps.
+
+✔ Fast
+✔ Simple
+✔ Zero overhead
+✖ AP cannot detect timeline sparsity
+✖ AP cannot know when something was “repaired”
+
+
+---
+
+Option B — “Transparent Snapshot” (Metadata + Full Insight)
+
+Snapshot includes metadata per-field:
+
+value: 42
+source: "inherited"
+inherited_from_time: 0.3
+validity: "fallback"
+
+Or for defaulted fields:
+
+value: 100
+source: "schema_default"
+validity: "default"
+
+This means AP can write rules like:
+
+“If emotion is inherited more than 3 frames in a row → escalate uncertainty”
+
+“If the derivative relies on non-explicit frames → clamp behavior”
+
+“If continuity breaks → pause animation”
+
+
+✔ AP sees everything
+✔ Enables smarter AI
+✔ Enables uncertainty handling
+✖ More complex
+✖ Larger snapshot payloads
+✖ Requires precise metadata schema
+
+
+---
+
+Option C — “Hybrid Snapshot” (Only important metadata)”
+
+Snapshot only exposes metadata for fields that AP marks as “tracked.”
+
+Meaning AP can say:
+
+AP register_track_critical(emotion, position, health)
+
+Then only those fields carry metadata.
+Everything else is opaque.
+
+✔ Good performance
+✔ AP awareness where needed
+✔ Keeps snapshots light
+✔ Future-proof
+✖ Requires an AP registration interface
+✖ Needs careful scoping
+
+
+---
+
+Which model should SECTION 25 lock in?
+
+This is a fundamental architectural choice.
+It cannot be changed later without breaking determinism and compatibility.
+
+Your options again:
+
+A — Opaque Snapshot
+B — Transparent Snapshot
+C — Hybrid Snapshot
+
+Give the letter only.

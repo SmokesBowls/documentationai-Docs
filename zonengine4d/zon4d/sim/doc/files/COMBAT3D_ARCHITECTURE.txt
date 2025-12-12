@@ -1,0 +1,269 @@
+```
+╔═══════════════════════════════════════════════════════════════════════╗
+║                     COMBAT3D INTEGRATION ARCHITECTURE                  ║
+╚═══════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                         ENGAIN MAIN LOOP                            │
+│  (Coordinates all subsystems, routes deltas, manages tick)          │
+└──┬──────────┬──────────┬──────────┬──────────┬─────────────────────┘
+   │          │          │          │          │
+   │          │          │          │          │
+   ▼          ▼          ▼          ▼          ▼
+┌─────┐  ┌─────────┐ ┌──────────┐ ┌─────────┐ ┌─────────┐
+│ SPA │  │   PER   │ │   NAV    │ │   BEH   │ │  COMBAT │
+│ TIA │  │   CEP   │ │   IGA    │ │   AVI   │ │    3D   │
+│ L3D │  │   3D    │ │   3D     │ │   OR3D  │ │         │
+└─────┘  └─────────┘ └──────────┘ └─────────┘ └─────────┘
+
+
+═══════════════════════════════════════════════════════════════════════
+                           DATA FLOW EXAMPLE
+═══════════════════════════════════════════════════════════════════════
+
+SCENARIO: Guard patrols, gets attacked, flees, dies
+
+┌─ TICK 1: PATROL ──────────────────────────────────────────────────┐
+│                                                                    │
+│  Perception3D ──→ "sees enemy at (10,0,0)"                       │
+│        ↓                                                           │
+│  Behavior3D ──→ decides: "continue patrol"                       │
+│        ↓                                                           │
+│  Navigation3D ──→ path to waypoint                               │
+│        ↓                                                           │
+│  Spatial3D ──→ moves guard                                       │
+│                                                                    │
+│  Combat3D: idle (no damage events)                               │
+│                                                                    │
+│  Status: guard @ (2,0,0), HP: 100/100, state: patrolling         │
+└────────────────────────────────────────────────────────────────────┘
+
+┌─ TICK 2: ATTACKED ────────────────────────────────────────────────┐
+│                                                                    │
+│  [EXTERNAL EVENT] enemy attacks!                                  │
+│        ↓                                                           │
+│  Behavior3D ──→ emit("combat3d/apply_damage", {                  │
+│                      source: "enemy",                             │
+│                      target: "guard",                             │
+│                      amount: 40.0                                 │
+│                  })                                                │
+│        ↓                                                           │
+│  Combat3D.tick() ──→ processes damage                            │
+│        │                                                           │
+│        ├─→ guard.health: 100 → 60                                │
+│        ├─→ detect: 60 < 25% of 100? NO                           │
+│        └─→ detect: 60 < 100? YES → low_health!                   │
+│                                                                    │
+│  Combat3D emits alerts:                                           │
+│        ↓                                                           │
+│        ("behavior3d/set_flag", {                                  │
+│            entity: "guard",                                        │
+│            flag: "low_health"                                      │
+│        })                                                          │
+│        ↓                                                           │
+│  Behavior3D receives flag ──→ state: "patrolling" → "fleeing"   │
+│                                                                    │
+│  Status: guard @ (2,0,0), HP: 60/100, state: FLEEING            │
+└────────────────────────────────────────────────────────────────────┘
+
+┌─ TICK 3: FLEEING ─────────────────────────────────────────────────┐
+│                                                                    │
+│  Behavior3D (fleeing) ──→ "run away from enemy!"                 │
+│        ↓                                                           │
+│  Navigation3D ──→ path to safe zone                              │
+│        ↓                                                           │
+│  Spatial3D ──→ moves guard away                                  │
+│                                                                    │
+│  Combat3D: idle (no damage events)                               │
+│                                                                    │
+│  Status: guard @ (0,5,0), HP: 60/100, state: fleeing            │
+└────────────────────────────────────────────────────────────────────┘
+
+┌─ TICK 4: KILLED ──────────────────────────────────────────────────┐
+│                                                                    │
+│  [EXTERNAL EVENT] enemy catches up and kills!                     │
+│        ↓                                                           │
+│  Behavior3D ──→ emit("combat3d/apply_damage", {                  │
+│                      source: "enemy",                             │
+│                      target: "guard",                             │
+│                      amount: 70.0                                 │
+│                  })                                                │
+│        ↓                                                           │
+│  Combat3D.tick() ──→ processes damage                            │
+│        │                                                           │
+│        ├─→ guard.health: 60 → -10 → clamp to 0                  │
+│        ├─→ detect: health <= 0? YES → DEAD!                      │
+│        └─→ guard.alive: True → False                             │
+│                                                                    │
+│  Combat3D emits alerts:                                           │
+│        ↓                                                           │
+│        ("behavior3d/set_flag", {                                  │
+│            entity: "guard",                                        │
+│            flag: "dead"                                            │
+│        })                                                          │
+│        ↓                                                           │
+│        ("navigation3d/disable", {                                 │
+│            entity: "guard"                                         │
+│        })                                                          │
+│        ↓                              ↓                            │
+│  Behavior3D receives ──→ state: "fleeing" → "dead"              │
+│                                       ↓                            │
+│  Navigation3D receives ──→ clear pathfinding, stop movement      │
+│                                                                    │
+│  Status: guard @ (0,5,0), HP: 0/100, state: DEAD, motion: NONE  │
+└────────────────────────────────────────────────────────────────────┘
+
+┌─ TICK 5+: POST-DEATH ─────────────────────────────────────────────┐
+│                                                                    │
+│  Combat3D: dead entities ignore all damage                        │
+│  Navigation3D: no pathfinding for dead entities                  │
+│  Behavior3D: dead state persists                                 │
+│  Spatial3D: no movement (could add ragdoll physics later)        │
+│                                                                    │
+│  Status: guard @ (0,5,0), HP: 0/100, CORPSE                      │
+└────────────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════
+                        SUBSYSTEM INTERACTIONS
+═══════════════════════════════════════════════════════════════════════
+
+┌──────────────┐
+│  Behavior3D  │
+└──────┬───────┘
+       │ emits: combat3d/apply_damage
+       │
+       ▼
+┌────────────────────────┐
+│   Combat3DAdapter      │
+│  ┌──────────────────┐  │
+│  │  Damage Queue    │  │ ◄─── Collects damage events
+│  └──────────────────┘  │
+│           │             │
+│           ▼             │
+│  ┌──────────────────┐  │
+│  │  combat3d_mr     │  │ ◄─── Pure functional kernel
+│  │  (MR layer)      │  │      • apply_damage()
+│  └──────────────────┘  │      • detect_death()
+│           │             │      • generate_alerts()
+│           │             │
+│           ▼             │
+│  ┌──────────────────┐  │
+│  │  Alert Deltas    │  │ ◄─── Converts MR alerts to
+│  └──────────────────┘  │      engine deltas
+└────────┬───────────────┘
+         │
+         │ emits: behavior3d/set_flag
+         │        navigation3d/disable
+         │
+         ├──────────────┐
+         │              │
+         ▼              ▼
+┌──────────────┐  ┌──────────────┐
+│  Behavior3D  │  │ Navigation3D │
+│              │  │              │
+│ • low_health │  │ • disable    │
+│ • dead       │  │   movement   │
+│              │  │ • clear path │
+└──────────────┘  └──────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════
+                      COMBAT3D INTERNAL STRUCTURE
+═══════════════════════════════════════════════════════════════════════
+
+Layer 3: Combat3DAdapter (Mutable State)
+┌────────────────────────────────────────────────┐
+│  damage_queue: deque()                         │ ◄─ Queue incoming
+│  snapshot: CombatSnapshot                      │    damage events
+├────────────────────────────────────────────────┤
+│  register_entity(id, health, max_health)       │
+│  handle_delta(type, payload)                   │ ◄─ Delta interface
+│  tick() → List[Delta]                          │ ◄─ Process & emit
+└────────────┬───────────────────────────────────┘
+             │
+             ▼ calls with immutable snapshot
+             │
+Layer 1: combat3d_mr (Pure Functional)
+┌────────────┴───────────────────────────────────┐
+│  CombatEntity(frozen dataclass)                │
+│    • entity_id, health, max_health             │
+│    • alive, stagger_timer, invuln_timer        │
+│                                                 │
+│  CombatSnapshot(frozen dataclass)              │
+│    • entities: dict[id → CombatEntity]        │
+│                                                 │
+│  step_combat(snapshot, damage_events)          │
+│    ├─→ for each damage event:                  │
+│    │     • find target entity                  │
+│    │     • apply_damage() → new entity         │
+│    │     • check death (health <= 0)           │
+│    │     • check low health (health <= 25%)    │
+│    │     • collect alerts                      │
+│    └─→ return CombatOutput                     │
+│          • new_snapshot                         │
+│          • alerts: [(entity_id, alert_type)]   │
+└─────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════
+                           COMPLETE INTEGRATION
+═══════════════════════════════════════════════════════════════════════
+
+class EngAInSimulation:
+    def __init__(self):
+        self.spatial = Spatial3DAdapter()
+        self.perception = PerceptionAdapter()
+        self.navigation = NavigationAdapter()
+        self.behavior = BehaviorAdapter()
+        self.combat = Combat3DAdapter()      # ◄─ NEW
+        
+    def spawn_entity(self, id, pos, health):
+        # Spawn in all subsystems
+        self.spatial.spawn(id, pos)
+        self.perception.register(id)
+        self.navigation.register(id)
+        self.behavior.register(id)
+        self.combat.register_entity(id, health, health)  # ◄─ NEW
+        
+    def tick(self):
+        # 1. Physics
+        self.spatial.physics_step()
+        
+        # 2. Perception
+        self.perception.perception_step()
+        
+        # 3. Navigation
+        self.navigation.navigation_step()
+        
+        # 4. Behavior (emits attack decisions)
+        behavior_deltas = self.behavior.tick()
+        for delta in behavior_deltas:
+            if delta.type == "combat3d/apply_damage":
+                self.combat.handle_delta(delta.type, delta.payload)
+        
+        # 5. Combat (processes damage, emits alerts)
+        combat_deltas = self.combat.tick()  # ◄─ NEW
+        for delta_type, payload in combat_deltas:
+            self.route_delta(delta_type, payload)
+            
+    def route_delta(self, delta_type, payload):
+        if delta_type == "behavior3d/set_flag":
+            self.behavior.set_flag(payload["entity"], payload["flag"])
+        elif delta_type == "navigation3d/disable":
+            self.navigation.disable(payload["entity"])
+
+
+╔═══════════════════════════════════════════════════════════════════════╗
+║                   ✅ COMBAT3D FULLY INTEGRATED                        ║
+║                                                                       ║
+║  Autonomous agents can now:                                          ║
+║    • Perceive threats (Perception3D)                                 ║
+║    • Navigate to safety (Navigation3D)                               ║
+║    • Make combat decisions (Behavior3D)                              ║
+║    • Take damage and die (Combat3D) ◄─ NEW                          ║
+║    • React to health states (all subsystems)                         ║
+║                                                                       ║
+║  This is a complete game AI loop.                                    ║
+╚═══════════════════════════════════════════════════════════════════════╝
+```

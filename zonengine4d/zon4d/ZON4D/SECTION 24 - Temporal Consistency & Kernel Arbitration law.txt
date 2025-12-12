@@ -1,0 +1,407 @@
+Good. This is the part where we make sure nobody desyncs time and lies to the game.
+
+
+---
+
+SECTION 24 — Temporal Consistency & Kernel Arbitration
+
+ZON4D is the single temporal oracle.
+EmpireKernel is the bouncer between AP and that oracle.
+This section defines how time is seen, shared, and protected across agents and systems.
+
+
+---
+
+24.0 Goals
+
+1. Single source of truth: All temporal facts come from ZON4D.
+
+
+2. Determinism: Same inputs → same temporal outputs, across runs.
+
+
+3. No ghost math: AP cannot “fix” or approximate curves on its own.
+
+
+4. Multi-agent safety: Multiple AP instances can query time without stepping on each other.
+
+
+5. Replayability: Given a fixed seed + ZON4D state, temporal behavior replays exactly.
+
+
+
+
+---
+
+24.1 Time Domains (Three Clocks)
+
+The system distinguishes three clocks:
+
+1. Engine Time (t_engine)
+
+Frame-based or delta-based.
+
+Drives animations, physics, Godot update loops.
+
+
+
+2. Narrative Time (t_story)
+
+In-universe timeline (cosmic years, human years, chapter-relative).
+
+Drives story events, prophecies, “3,500 years later” jumps.
+
+
+
+3. Query Time (t_query)
+
+The explicit t passed into ZON4D.
+
+Can be a function of t_engine, t_story, or arbitrary (debug, scrubbing).
+
+
+
+
+Rule 24.1-A:
+Every ZON4D query MUST state which domain its t belongs to:
+
+{
+  "t": 0.75,
+  "domain": "engine" | "story" | "explicit"
+}
+
+ZON4D is allowed to:
+
+Reject unsupported domains for a given track (UNSUPPORTED_DOMAIN).
+
+Internally map domains if a mapping exists (e.g., story→engine).
+
+
+
+---
+
+24.2 Temporal Frames (Snapshot Model)
+
+AP cannot peck ZON4D randomly and expect consistent reality.
+We define temporal frames:
+
+> A temporal frame is a bounded interval of time during which all AP queries see a stable view of ZON4D state.
+
+
+
+24.2.1 Frame Open / Close (Spec-Level)
+
+Kernel opens a frame tagged with:
+
+frame_id
+
+t_query
+
+domain
+
+consistency_level (see 24.4)
+
+
+All ZON4D queries from AP within that frame:
+
+Must be tagged with frame_id.
+
+Must see the same t_query, unless explicitly overridden.
+
+
+
+Rule 24.2-A: If AP does NOT specify t, the default is the frame’s t_query.
+
+Rule 24.2-B: Kernel guarantees:
+
+No mid-frame time drift.
+
+No partial updates of ZON4D within a frame.
+
+
+
+---
+
+24.3 Read-Only vs Mutating Behavior
+
+ZON4D, at runtime, is read-only from AP’s perspective.
+
+AP can query time-dependent data.
+
+AP cannot:
+
+Write new keys.
+
+Modify curves.
+
+Change interpolation modes.
+
+
+
+Any authoring/editing happens outside gameplay, via dedicated tools/pipelines.
+
+Rule 24.3-A:
+At runtime, AP can only:
+
+Select which track to query (e.g., branch A/B).
+
+Select which variant (e.g., “angry path” vs “calm path”).
+
+Never mutate the actual ZON4D curves.
+
+
+This keeps ZON4D as the immutable timeline and AP as the interpreter, not the editor.
+
+
+---
+
+24.4 Consistency Levels
+
+Kernel defines four temporal consistency modes for a frame:
+
+1. STRICT
+
+All temporal queries in a frame must:
+
+Use the same t_query.
+
+Resolve against a fixed ZON4D snapshot.
+
+
+Any attempt to query outside the domain → OUT_OF_RANGE error.
+
+Use case: Deterministic simulation, recorded replays, tests.
+
+
+
+2. FRAME
+
+t_query may advance only at frame boundaries.
+
+Inside a frame:
+
+AP sees a frozen time slice.
+
+
+Between frames:
+
+Kernel increments t_query from t_engine or t_story.
+
+
+Use case: Normal gameplay.
+
+
+
+3. EVENT
+
+Time is advanced by discrete events (e.g., dialogue choices, triggers).
+
+t_query may jump non-linearly (e.g., cutscenes, time skips).
+
+Use case: Story-driven scenes, non-real-time segments.
+
+
+
+4. LOOSE
+
+AP may specify t arbitrarily per query.
+
+No guarantee of temporal coherence.
+
+Use case: Debugging, timelines scrubbing.
+
+
+
+
+Rule 24.4-A:
+The default in a running game is FRAME.
+STRICT and EVENT are opt-in.
+LOOSE is debug-only and must be forbidden in production builds.
+
+
+---
+
+24.5 Multi-Agent Arbitration
+
+Multiple AP instances can exist (combat AI, narrative AI, camera AI, etc.).
+All of them talk to ZON4D through EmpireKernel, never directly.
+
+24.5.1 Per-Agent View
+
+Each AP instance gets:
+
+{
+  "agent_id": "AP_narrative_01",
+  "frame_id": "frame_90210",
+  "t_query": 12.5,
+  "domain": "engine",
+  "consistency": "FRAME"
+}
+
+Rule 24.5-A:
+
+Within a frame, all agents share the same t_query for a given domain.
+
+Agents may pick different tracks at that t (e.g., different characters).
+
+
+24.5.2 Arbitration Rules
+
+If multiple agents try to “shape” time (e.g., propose a new t_story):
+
+Only EmpireKernel decides the canonical t_story.
+
+AP may only recommend time changes (e.g., "request_time_jump").
+
+Kernel may accept or deny.
+
+
+Rule 24.5-B: AP cannot effect temporal jumps directly.
+It must go through a Kernel-mediated request:
+
+{
+  "request": "SET_T_STORY",
+  "value": 3500.0,
+  "reason": "chapter_transition"
+}
+
+Kernel decides:
+
+Approve → update t_story for next frame.
+
+Reject → AP must adapt.
+
+
+
+---
+
+24.6 Replay & Determinism
+
+To guarantee full replayability, the following must be true:
+
+1. ZON4D content is immutable for a given build/version.
+
+
+2. The sequence of (frame_id, t_query, domain, agent_id, query) tuples is deterministic.
+
+
+3. All ZON4D queries obey the Response Envelope contract (Section 23).
+
+
+
+Rule 24.6-A: Given:
+
+fixed ZON4D binary,
+
+fixed AP logic,
+
+fixed Kernel frame schedule, the system must produce bit-identical temporal outputs across runs.
+
+
+
+---
+
+24.7 Failure & Degradation Modes
+
+If ZON4D is unavailable or corrupted at runtime:
+
+Kernel must NOT let AP fall back to “guessing.”
+
+Instead, it switches to a degraded mode with explicit signals.
+
+
+24.7.1 ZON4D Unavailable
+
+Query result:
+
+{
+  "status": "error",
+  "code": "BACKEND_UNAVAILABLE",
+  "value": null,
+  "meta": {
+    "reason": "ZON4D_OFFLINE",
+    "fallback_mode": "STATIC_DEFAULTS"
+  }
+}
+
+AP must:
+
+Disable any rules that depend on temporal precision.
+
+Optionally switch to static approximations that are declared ahead of time, not computed on the fly.
+
+
+
+---
+
+24.8 Caching & Local Mirrors (AP Side)
+
+AP is allowed to cache temporal answers, but with rules:
+
+1. Cache key includes:
+
+track_id
+
+t_query
+
+domain
+
+frame_id
+
+consistency_level
+
+
+
+2. AP must invalidate caches when:
+
+frame_id changes (STRICT/FRAME/EVENT).
+
+ZON4D version changes.
+
+
+
+
+Rule 24.8-A: AP may never mutate cached values.
+Cache is read-only and must match ZON4D answers exactly.
+
+
+---
+
+24.9 Summary of Section 24
+
+ZON4D is the only temporal truth.
+
+EmpireKernel controls:
+
+Who can see time.
+
+When they see it.
+
+How consistent that view is.
+
+
+AP cannot:
+
+Change curves.
+
+Warp time directly.
+
+Approximate derivatives or interpolation.
+
+
+Frames + consistency levels + strict error contracts =
+No temporal desync. No ghost physics. No lying timelines.
+
+
+
+---
+
+If you want to keep going on the “cement all the contracts before any code” path, the next natural lock-in is:
+
+> Section 25 — Track Taxonomy & Naming Discipline
+(What kinds of ZON4D tracks exist: scalar, vector, emotion, pose, event, and how they are named and grouped so AP doesn’t swim in chaos.)
+
+
+
+If you want that, just say:
+25

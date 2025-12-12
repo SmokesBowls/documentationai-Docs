@@ -1,0 +1,444 @@
+Perfect. ZON4D is the right target for this window.
+And since you’re in “monitor mode,” I’ll hit you with a clean, brutal, structured spec blueprint you can absorb in chunks while keeping an eye on your heat job.
+
+This is ZON4D v0.1 — Temporal Data Model.
+Not implementation.
+Not code.
+Pure operational semantics.
+
+
+---
+
+🔥 ZON4D SPEC v0.1 — TEMPORAL DATA MODEL (DRAFT)
+
+(This builds directly on ZW-H v0.1 and ZONB v0.1. Nothing here contradicts them.)
+
+
+---
+
+0. Philosophy
+
+ZON4D is ZON + Time.
+The goal:
+Turn static schemas into evolving, interpolatable, compressible state timelines.
+
+This powers:
+
+animations
+
+world-state deltas
+
+AI memory decay
+
+buffs/debuffs
+
+NPC schedules
+
+physics curves
+
+event timelines
+
+branching game states
+
+rollback
+
+time-travel mechanics
+
+deterministic replays
+
+
+Everything that changes belongs here.
+
+
+---
+
+1. Core Concept
+
+A ZON4D field is a value indexed by time.
+
+Basic form:
+
+{position
+  0.0: [0 0]
+  0.5: [2 1]
+  1.0: [4 2]
+}
+
+This means:
+
+position at t=0.0 is [0,0]
+
+position at t=0.5 is [2,1]
+
+position at t=1.0 is [4,2]
+
+values between keyframes are resolved by interpolation rules
+
+
+
+---
+
+2. ZON4D = Three Layers
+
+Layer 1 — Schema (ZW-H)
+Defines what a field IS.
+
+Layer 2 — ZON (static instance)
+Defines a single state of the field.
+
+Layer 3 — ZON4D (temporal instance)
+Defines how the field CHANGES over time.
+
+
+---
+
+3. ZON4D Field Types
+
+ZON4D can only be applied to the following ZW-H types:
+
+ZW-H Type	ZON4D Allowed?	Notes
+
+int	✔️	stepped interpolation
+float	✔️	linear/cubic interpolation
+string	❌	unless enum with events
+bool	❌	but can use event-flips
+enum	✔️	jumps or events
+list<T>	✔️	if T is numeric or block
+block<T>	✔️	field-by-field timelines
+
+
+
+---
+
+4. ZON4D Block Definition
+
+A ZW-H block becomes ZON4D-capable by declaring:
+
+%type motion
+  {allow_temporal true}
+  {fields [
+    {position {type vec2}}
+    {rotation {type float}}
+  ]}
+
+Then usage:
+
+{motion
+  {position
+    0.0: [0 0]
+    1.0: [10 5]
+  }
+  {rotation
+    0.0: 0
+    1.0: 360
+  }
+}
+
+
+---
+
+5. Keyframe Semantics
+
+A keyframe = a timestamp + a value.
+
+1.0: 42
+0.25: [4 5]
+0.75: "idling"
+
+Rules:
+
+timestamps must be float or int
+
+sorted ascending
+
+no duplicate timestamps
+
+values must match (or coerce to) the ZW-H type
+
+interpolation method must be declared or fall back to default
+
+
+
+---
+
+6. Interpolation Modes
+
+Every temporal field declares how values between keyframes are generated.
+
+Supported interpolation types:
+
+Mode	Meaning	Allowed Types
+
+step	hold the last keyframe	all
+linear	basic linear blend	int, float, vec2, vec3
+cubic	smooth curves	float, vec2, vec3
+event	no interpolation, emits actions at exact times	enum, bool, string-like
+
+
+Declare per-field:
+
+{position {interp linear}}
+{health {interp step}}
+{emotion {interp event}}
+
+Or at block-level:
+
+%type motion
+  {interp linear}
+
+
+---
+
+7. ZON4D Compression
+
+This is where the magic of EngAIn starts outperforming normal engines.
+
+ZON4D compression strategies:
+
+7.1 Keyframe Deduplication
+
+If two keyframes produce identical values under interpolation → drop one.
+
+7.2 Early Cutoff
+
+If a field stops changing, cut the timeline early.
+
+7.3 Delta Encoding
+
+Store deltas instead of raw values for arrays/vectors.
+
+7.4 Curve Simplification
+
+Remove points that lie on the same linear or cubic path.
+
+7.5 ZONB Integration
+
+The binary packer stores keyframes as:
+
+[timestamp, value]
+
+with:
+
+type marker
+
+compressed float
+
+optional delta flag
+
+
+
+---
+
+8. ZON4D Within ZW-H
+
+Temporal fields do not change the schema.
+
+This is crucial.
+
+Example schema:
+
+{position {type vec2}}
+
+ZON4D instance:
+
+{position
+  0.0: [0 0]
+  1.0: [10 5]
+}
+
+Validator must:
+
+1. Detect keyframe syntax
+
+
+2. Validate values against ZW-H type
+
+
+3. Validate timestamps
+
+
+4. Validate interpolation rules
+
+
+5. Apply dedupe
+
+
+6. Produce ZON4D object
+
+
+
+
+---
+
+9. ZON4D Validation Rules
+
+A temporal field is valid if:
+
+the schema has allow_temporal true
+
+the root value is a set of keyframes
+
+timestamps are valid numbers
+
+values match the declared type
+
+interpolation is defined or defaults
+
+no duplicates
+
+sorted ascending
+
+start time = 0.0 unless allow_shift true
+
+
+
+---
+
+10. Error Cases
+
+Error	Meaning
+
+temporal_not_allowed	Schema didn’t opt-in
+bad_timestamp	Non-numeric or backwards timestamp
+invalid_value	Value doesn’t match ZW-H type
+mixed_value_types	Keyframes mix incompatible types
+overlapping_keyframe	Duplicate timestamp
+bad_interp	Unknown interpolation method
+
+
+
+---
+
+11. ZON4D → Runtime Contract
+
+At runtime, the engine sees a ZON4D field as:
+
+{
+  "keyframes": [
+    [0.0, value0],
+    [t1, value1],
+    [t2, value2]
+  ],
+  "interp": "linear",
+  "start": 0.0,
+  "duration": 3.0
+}
+
+The engine must:
+
+compute interpolated values on demand
+
+clamp or loop based on playback mode
+
+expose a deterministic timeline for AP rules
+
+
+
+---
+
+12. Playback Modes
+
+Declared at block or field level:
+
+Mode	Meaning
+
+clamp	Stop at last keyframe
+loop	Wrap time modulo duration
+pingpong	Reverse direction and bounce
+
+
+
+---
+
+13. ZW-S Syntax (Soft Form)
+
+Short form is allowed:
+
+{position 0:[0 0] 1:[10 5]}
+
+Or even:
+
+{rotation 0:0 1:360}
+
+Validator normalizes to long-form.
+
+
+---
+
+14. ZON4D Example (Full Block)
+
+Schema:
+
+%type motion
+  {allow_temporal true}
+  {fields [
+    {position {type vec2}}
+    {rotation {type float}}
+    {emotion {type enum values [idle angry neutral]}}
+  ]}
+
+ZW-S Input:
+
+{motion
+  {position
+    0: [0 0]
+    1: [5 3]
+  }
+  {rotation
+    0: 0
+    2: 720
+  }
+  {emotion
+    0: idle
+    1: angry
+    2: neutral
+  }
+}
+
+ZON4D Output:
+
+{
+  "motion": {
+    "position": {
+      "interp": "linear",
+      "keyframes": [
+        [0.0, [0,0]],
+        [1.0, [5,3]]
+      ]
+    },
+    "rotation": {
+      "interp": "linear",
+      "keyframes": [
+        [0.0, 0],
+        [2.0, 720]
+      ]
+    },
+    "emotion": {
+      "interp": "event",
+      "keyframes": [
+        [0.0, "idle"],
+        [1.0, "angry"],
+        [2.0, "neutral"]
+      ]
+    }
+  }
+}
+
+
+---
+
+NEXT STEP OPTIONS
+
+Pick one and I’ll flesh it out:
+
+A. Expand Section 4: Interpolation Math (linear/cubic/event formulas)
+
+B. Expand Section 7: Compression Algorithms (actual rules)
+
+C. Expand Section 11: Runtime API (Godot implementation contract)
+
+D. Add Section 15: ZON4D Binary Format (ZONB4D)
+
+E. Add Section 16: AP-Time Integration (rules that reference time)
+
+Since you’re supervising right now, tell me which one to drill into.

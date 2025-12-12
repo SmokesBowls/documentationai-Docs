@@ -1,0 +1,461 @@
+# PERFORMER_ENGINE v1.0
+
+**Status:** Draft – locks when first end-to-end performance replay matches canonical Tick history
+**Domain:** EngAIn / Enginality / SceneTrack / Audio / Dialogue / Visemes
+**Depends On:**
+
+* ENGINEBILITY_CORE_CONTRACT_v0.1
+* RUNTIME_LOOP_v0.1 (11-step Tick pipeline, hydration, performance scheduling)
+* EXECUTION_ABI_v1.0 (Execution ABI, Performance ABI, Lockstep ABI)
+* ZON4D Temporal Law (Sections 31–34, temporal indices + anchors)
+
+**Role:**
+Define how Enginality converts **temporal state** (ZON4D + domain views) into **actual performance** (audio, dialogue, visemes, animation, camera, FX) under **temporal lockstep** with the Runtime Loop and Execution ABI.
+
+This spec governs the **Performer Engine**, also called **SceneTrack**.
+
+---
+
+## 0. Overview
+
+The Performer Engine is a **read-only consumer** of Runtime state. It:
+
+1. Subscribes to **domain views** exposed after Step 7 (hydration) and Step 10 (cross-domain exposure).
+2. Uses **SceneTrack timelines** to decide *what* to play and *when* to play it.
+3. Emits **PerformanceTasks** back through the Performance ABI (`schedule_performance`) at Step 11.
+4. Never mutates world state directly; any influence on future state must be converted to Deltas and sent through `submit_deltas` on the Execution ABI.
+
+Core Principle:
+
+> Performer can bend **how** things are expressed, never **what is true**. Canonical truth lives in ZON4D; Performer translates it into frames, sounds, lines, and motion in strict temporal lockstep.
+
+---
+
+## 1. Core Concepts
+
+### 1.1 Time Spaces
+
+Performer operates across three closely linked time spaces:
+
+1. **Kernel Tick Time**
+
+   * Discrete ticks: `tick_id = 0, 1, 2, ...` from the Runtime Loop.
+   * All state changes are anchored to these ticks.
+
+2. **SceneTrack Time**
+
+   * Continuous timeline per SceneTrack (float seconds).
+   * Each SceneTrack maintains a mapping `tick_id → scene_time` (monotonic, but may pause/slow/fast-forward).
+
+3. **Performance Local Time**
+
+   * Individual clip / envelope / curve local time (0 → duration).
+   * Derived from SceneTrack time plus clip offset.
+
+Lockstep guarantees:
+
+* SceneTrack time **must be monotonic with respect to kernel Tick IDs**, even if stretched or paused.
+* No playback is allowed for a tick that hasn’t yet occurred in the Runtime Loop (no future playback).
+
+### 1.2 Tracks, Clips, and Channels
+
+* **Track** – Ordered sequence of Clips over SceneTrack Time (e.g. “Dialogue”, “Music”, “SFX”, “Camera”, “Facial”).
+
+* **Clip** – A time-bounded instruction to perform something:
+
+  * Play audio asset with envelope.
+  * Speak a line using a voice + visemes.
+  * Blend animation pose over time.
+  * Move camera, apply post-FX.
+
+* **Channel** – Logical grouping for mixing / priority:
+
+  * `diag_channel`, `music_channel`, `sfx_channel`, `ui_channel`, `camera_channel`, `facial_channel`.
+
+### 1.3 Performer Domains
+
+Performer consumes **domain views** exposed via Execution ABI:
+
+* `narrative_view` – active dialogue nodes, speaker, mood, flags.
+* `audio_view` – BGM state, SFX triggers, volume curves.
+* `spatial_view` – positions, targets, camera anchors.
+* `animation_view` – base poses, blend targets, animation tags.
+* `ap_rules_view` – constraints that may affect performance (e.g. “no explicit gore”).
+
+Each view is read-only, derived from the latest canonical Snapshot.
+
+---
+
+## 2. Inputs & Outputs
+
+### 2.1 Inputs (from Runtime via ABI)
+
+Performer Engine relies on:
+
+1. `query_domain_view(domain_id, view, tick_id)` for reading state.
+2. `schedule_performance(tick_id, tasks)` called *from* Runtime Loop Step 11 to send tasks into concrete platform renderers.
+
+### 2.2 Outputs
+
+Performer outputs:
+
+1. **PerformanceTasks** (Render/Audio/Dialogue/Animation)
+2. Optional **performance_feedback(domain_id, tick_id, metrics)` for metrics, not mutation.
+
+---
+
+## 3. Temporal Lockstep Rules (Performer-side)
+
+Performer Engine must respect the Lockstep ABI:
+
+1. Every PerformanceTask must carry:
+
+   * `tick_id` – the Tick that produced this task.
+   * `scene_time` – SceneTrack time at scheduling.
+   * Optional `deadline_tick` – latest Tick by which this task must be executed (e.g. debug).
+
+2. Performer must never:
+
+   * Render state referencing a `tick_id` not yet processed by Runtime.
+   * Extrapolate canonical state beyond last known Snapshot (interpolation is allowed inside known ranges only).
+
+3. If performance falls behind (e.g. heavy GPU load):
+
+   * It may **drop low-priority tasks** (e.g. minor FX, non-critical voice barks).
+   * It may **downsample** (e.g. skip frames) but must **not** reorder events from different ticks.
+
+4. If a Tick has a **temporal fence** (from Runtime Loop), that fence must be visible to Performer:
+
+   * E.g. `TickMetadata.temporal_fence=True` in the scheduling metadata.
+   * Performer may reduce intensity or pause some tracks to avoid runaway lag.
+
+---
+
+## 4. SceneTrack: Global Performance Timeline
+
+SceneTrack is the **top-level performance orchestrator**.
+
+### 4.1 SceneTrack Object
+
+Conceptual structure:
+
+```text
+SceneTrack:
+  id: SceneTrackID
+  active: bool
+  scene_time: float          # seconds
+  tick_to_scene_time: Map[int → float]
+  tracks: Dict[TrackID → Track]
+  mix_bus: MixBusState       # per-channel volumes, sidechains, ducking
+  camera_state: CameraState
+```
+
+* `tick_to_scene_time` ensures deterministic mapping from runtime ticks to scene time for replay.
+
+### 4.2 Track Types
+
+Mandatory track categories:
+
+* **DialogueTrack** – dialogue lines, intensity curves, speech timing.
+* **MusicTrack** – BGM beds, stems, crossfades.
+* **SFXTrack** – sound effects, UI beeps, foley.
+* **AnimationTrack** – body pose, locomotion, keyframe blends.
+* **FacialTrack** – visemes, expressions.
+* **CameraTrack** – camera targets, transitions, shake, FOV, post effects.
+
+Each Track is:
+
+```text
+Track:
+  id: TrackID
+  priority: int
+  clips: [Clip]          # sorted by start_time
+  layering_mode: "additive" | "exclusive" | "blend"
+```
+
+### 4.3 Clip Semantics
+
+Generic Clip:
+
+```text
+Clip:
+  id: ClipID
+  type: "audio" | "dialogue" | "animation" | "camera" | "fx"
+  start_time: float
+  duration: float
+  payload: Dict          # type-specific data
+  easing: Curve          # optional easing for mixing
+  tags: [string]
+```
+
+Clips are **never** allowed to directly alter canonical state; they only define performance over time.
+
+---
+
+## 5. Dialogue Performance Engine
+
+Dialogue is the **highest-stakes performance domain** in EngAIn.
+
+### 5.1 Dialogue Inputs
+
+From `narrative_view` and dialogue domain:
+
+* Active node/conversation ID
+* Speaker ID, emotion tags, intensity scalar
+* Line IDs (for TTS or pre-recorded audio)
+* Timing hints (e.g. pause before, post-pause)
+
+These are hydrated in Step 7 and exposed via domain view.
+
+### 5.2 Dialogue Track Rules
+
+* For each active conversation, DialogueEngine manages one or more DialogueTracks.
+
+* A DialogueClip contains:
+
+  * `line_id` – semantic ID for text/audio.
+  * `speaker_id`
+  * `emotion_profile` (e.g. calm, urgent, furious)
+  * `intensity_curve` (0–1 over line duration).
+  * `viseme_stream_id` or instructions for generating visemes.
+
+* DialogueTrack must:
+
+  * Respect `tick_id` when scheduling new clips.
+  * Never overlap conflicting clips for the same speaker on the same channel (unless explicitly allowed, e.g. radio voices).
+  * Align viseme & facial expression timing to audio playback.
+
+### 5.3 Dialogue → PerformanceTasks
+
+At Step 11, DialogueEngine emits:
+
+* `DialogueTask`:
+
+  * `tick_id`, `scene_time`, `speaker_id`, `line_id`, `emotion_profile`, `intensity_curve`.
+* `AudioTask` for the voice playback.
+* `AnimationTask` for facial / body gestures as needed.
+
+These tasks must be deterministic given the same Snapshot + DialogueTrack state.
+
+---
+
+## 6. Audio Engine
+
+### 6.1 Audio Domains
+
+* **Music** – long-running beds, stems, loops.
+* **SFX** – localized one-shots, environmental, UI.
+* **Voice** – from DialogueEngine or other sources.
+
+### 6.2 Audio Clip Payload
+
+Audio Clip payload includes:
+
+```text
+AudioPayload:
+  asset_id: string
+  channel: string          # music / sfx / voice / ui
+  volume_db: float
+  pan: float               # -1..1
+  pitch_semitones: float
+  envelope: EnvelopeSpec   # ADSR, sidechain, ramps
+  spatial: SpatialSpec?    # position, radius, falloff
+```
+
+### 6.3 Mixing & Ducking
+
+MixBusState must support:
+
+* Per-channel gains.
+* Duck rules (e.g. dialogue ducks music).
+* Hard limits on simultaneous voices per channel (to avoid overload).
+
+Audio Engine translates PerformanceTasks into concrete engine calls and may:
+
+* Drop low-priority SFX when under load.
+* Simplify mixing (e.g. collapse distant SFX into a single ambient).
+
+But it must never:
+
+* Change the fact that a critical dialogue line **occurred**.
+* Reorder timeline relative to Tick order.
+
+---
+
+## 7. Animation & Viseme Engine
+
+### 7.1 Animation Clips
+
+Animation Clip payload:
+
+```text
+AnimationPayload:
+  rig_id: string
+  pose_asset_id: string | AnimationCurveID
+  blend_in: float
+  blend_out: float
+  layer: "base" | "upper_body" | "additive"
+  weight: float
+```
+
+The engine performs:
+
+* Pose blending across layers.
+* Blend stack evaluation for multiple clips affecting the same rig.
+
+### 7.2 Viseme Clips
+
+Viseme Clip payload:
+
+```text
+VisemePayload:
+  rig_id: string
+  viseme_curve_id: string     # mapping time→viseme weights
+  linked_audio_clip_id: string
+  offset: float                # alignment offset to audio
+```
+
+Rules:
+
+* Viseme curves must remain locked to audio clip scheduling (same `tick_id`).
+* No viseme playback without corresponding audio (unless explicitly configured for “silent lip movement” as a style).
+
+---
+
+## 8. PerformanceTasks: ABI Concretization
+
+Performer Engine lives on the spec side; concrete platform code (Godot, etc.) consumes **PerformanceTasks** as defined via Execution ABI.
+
+### 8.1 Generic Task Format
+
+Every task must minimally include:
+
+```text
+PerformanceTask:
+  id: TaskID
+  tick_id: int
+  scene_time: float
+  task_type: "render" | "audio" | "dialogue" | "animation" | "camera" | "fx"
+  payload: Dict
+  priority: int       # 0 = highest
+```
+
+### 8.2 Type-Specific Payload Contracts
+
+* `RenderTask`:
+
+  * visible entity listing, camera target, layer toggles.
+
+* `AudioTask`:
+
+  * Asset, channel, envelope, spatial data.
+
+* `DialogueTask`:
+
+  * line_id, speaker_id, emotion profile, intensity.
+
+* `AnimationTask`:
+
+  * rig_id, animation payload, layer, weights.
+
+* `CameraTask`:
+
+  * target, transition time, FOV, shake.
+
+* `FXTask`:
+
+  * particle/visual effect instructions.
+
+---
+
+## 9. Degradation & Overload Policies
+
+Performer Engine has its own overload model, distinct but aligned with Runtime temporal fences.
+
+### 9.1 Priority Levels
+
+Rough bands:
+
+1. **Critical** – main dialogue, main camera, core animation, vital UI cues.
+2. **High** – BGM, key SFX, major VFX.
+3. **Medium** – ambient SFX, secondary animation.
+4. **Low** – cosmetic FX, small UI polish, non-critical barks.
+
+### 9.2 Degradation Rules
+
+Under load, Performer **MAY**:
+
+* Drop Low priority first, then Medium.
+* Reduce refresh rate for Camera FX / post FX.
+* Simplify animation (e.g. drop finger animation, keep body & face).
+
+Performer **MUST NOT**:
+
+* Drop Critical tasks unless system is failing catastrophically; in that case it must emit a CRITICAL alert and may pause SceneTrack until recovering.
+
+### 9.3 Temporal Fence Alignment
+
+If Runtime Loop marks a Tick with a **temporal fence** due to time budget exceed (Enginebility P3), Performer must:
+
+* Respect that fence by avoiding new long-duration tasks.
+* Prefer “cheap” actions (static poses, minimal audio changes).
+* Log the fence in performance metrics for post-mortem.
+
+---
+
+## 10. Simulation & Replay Integration
+
+Performer Engine is a first-class citizen of SIM ABI.
+
+### 10.1 Record
+
+Simulation may record:
+
+* Tick → SceneTrack mappings.
+* Track states (active clips, current time).
+* Emitted PerformanceTasks per Tick.
+* Load metrics (dropped tasks, degraded modes).
+
+These must be reproducible from:
+
+* Canonical Delta stream.
+* RUNTIME_LOOP + Execution ABI + Performer spec.
+
+### 10.2 Replay
+
+Replay modes:
+
+* **Full** – re-run Runtime + Performer, assert identical tasks.
+* **Delta-only** – feed recorded tasks directly to platform engine to debug purely visual/audio side.
+* **Probe** – run with different performance rules (e.g. different mixing or animation style) while comparing logical alignment.
+
+---
+
+## 11. Compliance Criteria (Performer Engine)
+
+An implementation is **Performer-compliant** if:
+
+1. It consumes only **domain views** + Tick metadata via Execution ABI, never mutating canonical state directly.
+2. It emits only **PerformanceTasks** + non-mutating `performance_feedback`.
+3. All tasks are:
+
+   * Labeled with `tick_id`.
+   * Deterministically derived from Snapshot + SceneTrack state.
+4. It respects Temporal Lockstep:
+
+   * No future state usage.
+   * No partial/unstable state unless explicitly in `staged` sim mode.
+5. It obeys overload policies:
+
+   * Drops only allowed priority bands.
+   * Emits metrics when degrading.
+6. Its behavior is replayable from recorded Delta streams and Performer internal state.
+
+Non-compliant performance code may still “look good,” but it is **not Enginality** and cannot claim determinism, reversibility, or AP-safe behavior.
+
+---
+
+If you want, next step I can:
+
+* Add **PERFORMER_ENGINE_v1.0** cross-references into RUNTIME_LOOP and EXECUTION_ABI specs (light patch text), **or**
+* Design the **SceneTrack data model for Godot** (GDScript resources/nodes for Tracks, Clips, and PerformanceTasks), so you can start wiring this into the engine.

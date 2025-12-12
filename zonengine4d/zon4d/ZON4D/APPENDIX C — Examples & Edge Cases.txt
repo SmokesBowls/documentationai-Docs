@@ -1,0 +1,475 @@
+Good, you’re parked. Let’s use the brain cycles.
+
+We’ll keep this pure spec, no code, but concrete enough that future-you can implement it blind.
+
+
+---
+
+11 — ZON4D EXAMPLES + EDGE CASES
+
+11.1 NPC Emotion Arc (Event + Curve Blend)
+
+11.1.1 Schema (ZW-H side, concept only)
+
+%type emotion_state
+  {fields [
+    {valence {type float min -1.0 max 1.0}}      ; -1 = despair, +1 = euphoria
+    {arousal {type float min 0.0 max 1.0}}       ; 0 = calm, 1 = frantic
+    {label   {type enum values [calm wary angry terrified ecstatic neutral] default neutral}}
+  ]}
+
+%type npc_emotion_track
+  {fields [
+    {npc_id {type string required}}
+    {emotion {type emotion_state}}         ; this will be ZON4D-extended
+  ]}
+
+11.1.2 ZON4D Temporal Emotion Curve
+
+{npc_emotion_track
+  {npc_id "GUARD_01"}
+
+  {emotion
+    {interp cubic}
+    0.0: {valence  0.0 arousal 0.1 label calm}
+    0.3: {valence -0.2 arousal 0.3 label wary}
+    0.6: {valence -0.7 arousal 0.6 label angry}
+    1.0: {valence -0.9 arousal 0.9 label terrified}
+  }
+}
+
+Semantics:
+
+emotion is a temporal block (tensor): each keyframe must validate against emotion_state.
+
+For t between keys, runtime:
+
+interpolates valence, arousal using cubic;
+
+label can be:
+
+nearest key label, or
+
+derived from valence/arousal by engine logic.
+Spec allows either; engine must document which it uses.
+
+
+
+
+Event-blend concept:
+
+AP rules can read:
+
+emotion.valence(t)
+
+emotion.arousal(t)
+
+emotion.label(t)
+
+
+They can also register event hooks like “when arousal crosses 0.5 → trigger line”.
+
+
+We’ll show that in 11.4.
+
+
+---
+
+11.2 Door That Opens + Emits Sound at Key Instants
+
+We mix:
+
+Static fields → geometry / identifiers
+
+Temporal fields → opening angle
+
+Instant events → sound triggers
+
+
+11.2.1 Schema
+
+%type door
+  {fields [
+    {id          {type string required}}
+    {hinge_pos   {type block<vec3> required}}
+    {open_angle  {type float}}                  ; ZON4D-extended
+    {state       {type enum values [closed opening open closing] default closed}}
+  ]}
+
+%type vec3
+  {fields [
+    {x {type float}}
+    {y {type float}}
+    {z {type float}}
+  ]}
+
+11.2.2 ZON4D + Event Layer
+
+{door_track
+  {door
+    {id "MAIN_GATE"}
+    {hinge_pos {x 0 y 0 z 0}}
+
+    {open_angle
+      {interp linear}
+      {extrap clamp}
+      0.0:   0      ; closed
+      0.2:  30
+      0.5:  90      ; fully open
+      1.0:  90
+    }
+
+    {state
+      {interp step}
+      0.0: closed
+      0.2: opening
+      0.5: open
+      0.8: closing
+      1.0: closed
+    }
+  }
+
+  ; AP-flavored event hooks (spec-level, actual AP spec lives elsewhere)
+  {events [
+    {at 0.0  {play_sfx "door_latch"}}
+    {at 0.2  {play_sfx "door_creak_start"}}
+    {at 0.5  {play_sfx "door_creak_end"}}
+    {at 0.8  {play_sfx "door_closing"}}
+    {at 1.0  {play_sfx "door_latch"}}
+  ]}
+}
+
+Semantics:
+
+open_angle — float curve, linear, clamped outside [min_t, max_t].
+
+state — enum curve, step interpolation (piecewise constant).
+
+events — instant triggers at precise normalized times.
+ZON4D just records (t, payload); AP defines what play_sfx means.
+
+
+
+---
+
+11.3 Nested Tensor: Motion = {Position, Rotation} Together
+
+We group multiple temporal fields under a single logical motion track.
+
+11.3.1 Schema
+
+%type motion
+  {fields [
+    {position {type block<vec3>}}
+    {rotation {type float}}       ; degrees
+  ]}
+
+%type actor_motion_track
+  {fields [
+    {actor_id {type string required}}
+    {motion   {type motion}}      ; ZON4D-extended
+  ]}
+
+11.3.2 ZON4D Representation
+
+{actor_motion_track
+  {actor_id "NPC_SCOUT"}
+
+  {motion
+    {interp linear}        ; applies as default to sub-fields if unspecified
+    {extrap clamp}
+
+    {position
+      0.0: {x 0  y 0  z 0}
+      0.3: {x 5  y 0  z 0}
+      0.6: {x 10 y 2  z 0}
+      1.0: {x 15 y 2  z 0}
+    }
+
+    {rotation
+      {interp hermite}
+      0.0:   0
+      0.5:  90
+      1.0: 180
+    }
+  }
+}
+
+Semantics:
+
+motion is a nested tensor block containing two curves.
+
+position and rotation share the same normalized time domain [0,1], but may have different key times.
+
+Runtime can:
+
+sample motion.position(t)
+
+sample motion.rotation(t)
+
+treat the pair as a single transform at time t.
+
+
+
+
+---
+
+11.4 AP Rule: Emotion Crossing Anger at t ≥ 0.6
+
+We need a threshold-crossing semantic.
+
+At the ZON4D level we define what information is available:
+
+Field sample: get(field, t)
+
+Previous sample: get(field, t - ε)
+
+Derived predicate: crosses_above(field, threshold, t_window) — this is AP’s problem, but ZON4D must provide continuous values.
+
+
+11.4.1 Emotion Track (from 11.1)
+
+{npc_emotion_track
+  {npc_id "GUARD_01"}
+  {emotion
+    {interp cubic}
+    0.0: {valence  0.0 arousal 0.1 label calm}
+    0.3: {valence -0.2 arousal 0.3 label wary}
+    0.6: {valence -0.7 arousal 0.6 label angry}
+    1.0: {valence -0.9 arousal 0.9 label terrified}
+  }
+}
+
+11.4.2 AP-style Rule (spec-level, conceptual)
+
+{rule
+  {id "escalate_dialogue_if_angry_late"}
+  {scope "GUARD_01"}
+
+  {when
+    {time_window [0.6 1.0]}
+    {crosses_above
+      {curve emotion.valence}
+      {threshold -0.5}          ; more negative = more hostile
+    }
+  }
+
+  {effect
+    {push_dialogue_state "hostile"}
+    {unlock_line "GUARD_THREATS_PLAYER"}
+  }
+}
+
+ZON4D requirement:
+
+Must support:
+
+sampling emotion.valence(t) for arbitrary t ∈ [0,1]
+
+monotonic or non-monotonic curves; AP is responsible for scanning time windows.
+
+
+
+ZON4D itself doesn’t “run the rule”; it guarantees the curve is well-formed and queryable.
+
+
+---
+
+11.5 ZONB Sketch: How the Temporal Index Lays Out
+
+This is not implementation, just the conceptual binary layout so you don’t contradict yourself later.
+
+11.5.1 High-Level Structure
+
+[ Z4_MAGIC 4B ]        ; "Z4D\0"
+[ VERSION   1B ]       ; e.g. 0x01
+[ FLAGS     1B ]       ; bit flags (endianness, compression, etc.)
+[ RESERVED  2B ]       ; align to 8 bytes
+
+[ BASE_ZON_LENGTH 4B ] ; byte length of embedded base ZON
+[ BASE_ZON_PAYLOAD … ] ; standard ZON (no time)
+
+[ TEMPORAL_SECTION_LENGTH 4B ]
+[ TEMPORAL_SECTION_PAYLOAD … ]
+
+11.5.2 Temporal Section Payload (Conceptual)
+
+For each temporal field:
+
+[ FIELD_ID 2B ]          ; index into schema (e.g. health, position, rotation)
+[ FIELD_FLAGS 1B ]       ; static/curve/tensor, interp mode, extrap mode
+[ KEY_COUNT 2B ]         ; number of time keys
+
+[ KEY_0_TIME 4B float ]
+[ KEY_0_VALUE … ]        ; encoded according to type (int, float, enum index, or nested block ref)
+...
+[ KEY_N_TIME 4B float ]
+[ KEY_N_VALUE … ]
+
+For tensor / nested blocks, KEY_N_VALUE can be:
+
+an inline packed block; or
+
+an offset into another table of block instances.
+
+
+Spec doesn’t lock this down; it only requires:
+
+time keys are serialized in sorted order;
+
+each KEY_VALUE corresponds to a valid ZW-H value for that field type.
+
+
+The important part:
+
+> Base ZON holds the “canonical shape” and default/static values.
+ZON4D temporal section stores deltas over time keyed by field id.
+
+
+
+
+---
+
+11.6 Fallback Logic: Missing 0.0 key, Extrapolation Modes
+
+You asked:
+
+> “Fallback logic: missing 0.0 key → clamp-from-first? error? default?”
+“Extrapolation modes: clamp | loop | pingpong | zero — runtime-configurable or spec-fixed?”
+
+
+
+We’ll pin this down.
+
+11.6.1 Edge Key Rules
+
+1. Keys must be within [0.0, 1.0].
+If any key < 0.0 or > 1.0 → error.
+
+
+2. Minimum 2 keys.
+A curve with <2 keys → error.
+(If you really want a static value, use static.)
+
+
+3. 0.0 and 1.0 are recommended, not required.
+
+If they are missing, runtime uses extrapolation mode to handle outside region.
+
+
+
+
+Example:
+
+{health
+  {interp linear}
+  {extrap clamp}
+  0.2: 80
+  0.8: 40
+}
+
+For t ∈ [0.2, 0.8] → normal interpolation.
+
+For t < 0.2 and t > 0.8 → use extrap mode.
+
+
+11.6.2 Extrapolation Modes (Spec-Level, Per-Curve)
+
+Declared as:
+
+{extrap clamp}   ; default
+; or
+{extrap loop}
+{extrap pingpong}
+{extrap zero}
+
+These are part of the ZON4D spec and are per-curve attributes.
+Runtime must implement them as follows:
+
+clamp (default)
+
+For t < t_min → value at t_min
+
+For t > t_max → value at t_max
+
+
+loop
+
+Let [t_min, t_max] be the defined key range.
+
+Compute period = t_max - t_min.
+
+Map any t to:
+
+t' = t_min + ((t - t_min) mod period)
+
+Sample curve at t'.
+
+
+pingpong
+
+Same as loop, but every second pass reverses direction.
+
+Map t into a triangular wave over [t_min, t_max].
+
+
+zero
+
+For t < t_min or t > t_max → use type-zero:
+
+number → 0
+
+bool → false
+
+enum → first declared value
+
+string → ""
+
+list → []
+
+block → field-wise zeros/defaults
+
+
+
+Config knobs:
+
+Spec fixes the meaning of modes.
+
+Whether engine allows a global override (e.g. “force clamp for all curves in this scene”) is up to implementation, but it must never violate the declared mode without an explicit engine-level policy.
+
+
+
+---
+
+11.7 Summary of Section 11
+
+You now have spec-level examples for:
+
+✅ NPC emotion arc using temporal blocks (valence/arousal/label).
+
+✅ Door opening + sound using curves + instant events.
+
+✅ Nested motion tensor: position + rotation evolving together.
+
+✅ AP rule concept: threshold crossing (emotion.valence below -0.5 at t ≥ 0.6).
+
+✅ ZONB temporal index layout: base ZON + temporal section.
+
+✅ Fallback logic for missing 0.0 key + extrap modes:
+
+clamp | loop | pingpong | zero
+
+per-curve, spec-defined semantics.
+
+
+
+
+---
+
+If you want, next we can:
+
+Name and version the ZON4D spec (ZON4D v0.1) and
+
+Wrap Sections 1–11 into a single ZON4D_SPEC.md like we did for ZW-H,
+
+Or drill into one of these examples and harden it into a formal subsection (e.g. “Temporal Emotion Tracks” as a canonical pattern).

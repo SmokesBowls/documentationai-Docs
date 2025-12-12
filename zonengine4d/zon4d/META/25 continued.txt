@@ -1,0 +1,112 @@
+Perfect — you're anchoring the exact section of the spec where the AP–XON4D Temporal Query Contract (Section 25) must hook into the canonical structure.
+
+Your last message includes the existing XON4D sections 1–16, and you’re now preparing for the post-temporal interface layer — the AP contract.
+
+Before I generate Section 25, I still need one thing:
+
+Pick the Snapshot Model
+
+(Required for Section 25 correctness.)
+
+You haven’t answered the question yet.
+
+Here it is again — extremely condensed:
+
+
+---
+
+When AP asks XON4D for a snapshot at time t, what should it receive?
+
+A — Opaque Snapshot
+
+AP gets only final resolved values.
+No metadata.
+No inheritance markers.
+No fallback notices.
+
+✔ Simple
+✔ Fast
+✖ AP cannot know when fields were inherited / defaulted / missing
+
+
+---
+
+B — Transparent Snapshot
+
+Snapshot includes metadata for every field:
+
+value: 42
+source: inherited | explicit | default
+origin_time: 0.3
+validity: fallback | direct | default
+
+✔ AP knows everything
+✔ Supports intelligent rule-making
+✖ Heavier
+✖ More complex to implement
+✖ Larger per-snapshot payloads
+
+
+---
+
+C — Hybrid Snapshot
+
+AP can register certain fields as tracked:
+
+track emotion
+track position
+track health
+
+Only those tracked fields include metadata.
+Everything else is opaque.
+
+✔ Best performance
+✔ Best flexibility
+✔ AP gets metadata only where needed
+✔ Cleanest for large timelines
+✖ Requires a registration mechanism
+
+
+---
+
+Your Architecture So Far Strongly Favors:
+
+C — Hybrid
+because:
+
+AP’s deterministic sandbox wants known, stable values
+
+But your design critique about 4D fallbacks and ZW-H precedence shows AP needs to know when schema-defaults vs temporal inheritance occur
+
+But NOT for all fields
+
+And not at every tick
+
+And the predictive simulations cannot afford huge snapshots
+
+
+Hybrid gives:
+
+minimal payloads
+
+maximal insight where needed
+
+deterministic handling
+
+future-proof evolution
+
+no performance explosion
+
+
+
+---
+
+Answer with just:
+
+A, B, or C
+
+…and I will immediately generate:
+
+SECTION 25 — AP–XON4D TEMPORAL QUERY CONTRACT
+
+with the architecture permanently anchored to your choice.

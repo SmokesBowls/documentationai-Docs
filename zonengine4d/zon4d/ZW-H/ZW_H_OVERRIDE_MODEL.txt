@@ -1,0 +1,142 @@
+Got it. Before generating anything, we need one micro-clarification so the final spec reflects your exact intent — not a misinterpretation.
+
+You wrote:
+
+> Confirmed: Option C — "Allow only if schema explicitly opts-in"
+
+
+
+I need to confirm exactly what “override” means in your mental model before I bake it into the frozen v0.1 spec.
+
+There are 2 possible interpretations, and both are valid — but they lead to very different future behavior.
+
+
+---
+
+🔍 Which meaning of “Override” do you want ZW-H to support?
+
+Option C1 — Soft Override (Per-Block Customization)
+
+Meaning:
+
+A ZW-S block MAY redefine field type or constraints, but only inside that specific block.
+
+The base schema remains unchanged.
+
+This is like ad-hoc specialization for one instance.
+
+
+Example:
+
+%npc
+  {fields [
+    {health {type int min 0 max 100}}
+  ]}
+  {allow_override true}
+
+{npc
+  %override health {type float min 0.0 max 100.0}
+  {health 17.5}
+}
+
+Effect:
+That one NPC allows float health.
+The NPC schema stays int for all others.
+
+This is good for:
+
+Dialogue that needs extra metadata
+
+Temporary animation parameters
+
+Experimental objects
+
+Metadata injection for AI agents
+
+
+Downside:
+Game logic must be careful — you lose uniformity in runtime unless you constrain overrides.
+
+
+---
+
+Option C2 — Hard Override (Inline Schema Redefinition)
+
+Meaning:
+
+An override in a block modifies the schema itself.
+
+All future blocks of that type see the new definition.
+
+
+Example:
+
+{npc
+  %override health {type float}
+  {health 17.5}
+}
+
+# Now ALL npc.health are floats
+
+This is more like:
+
+Hot-patching schema
+
+Dynamic schema evolution
+
+Engine adapting during runtime
+
+Multi-agent collaborative editing
+
+
+Downside:
+Dangerous if accidental — one override mutates global behavior.
+
+
+---
+
+🧠 Before freezing the spec, I need your confirmation:
+
+Do you want…
+
+C1: Per-block customization only (local override)
+→ safe, scoped, great for creative flexibility
+
+
+or
+
+C2: Schema mutation (global override)
+→ powerful, risky, evolutionary engine behavior
+
+
+
+---
+
+My recommendation based solely on EngAIn design:
+
+⭐ C1 — Soft Override
+
+Because EngAIn is:
+
+deterministic
+
+runtime-driven
+
+semantics-first
+
+pipeline-validated
+
+
+And because your downstream systems (AP, ZON4D, Godot runtime) rely on stable schemas.
+
+But the final call is yours.
+
+
+---
+
+⚡ One sentence:
+
+Which override model do you want written into the frozen ZW-H v0.1 specification: C1 or C2?
+
+Say:
+👉 C1 or C2

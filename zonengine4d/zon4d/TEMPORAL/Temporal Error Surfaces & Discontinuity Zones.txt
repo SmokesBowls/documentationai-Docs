@@ -1,0 +1,391 @@
+27 — Temporal Error Surfaces & Discontinuity Zones
+
+Status: Frozen
+Depends On: Sections 24–26, ZON4D v0.1, AP v1.1, Snapshot Provider Contract
+
+
+---
+
+27.0 Purpose
+
+This section defines the mathematical and engine-level framework for dealing with discontinuities, undefined derivatives, jump events, and temporal instability in ZON4D tracks.
+
+AP must never see these raw hazards.
+Snapshot Provider must never allow them to pass silently.
+
+This section gives you a deterministic, universal, physics-engine-level contract for:
+
+discontinuity classification
+
+derivative legality
+
+interpolation safety
+
+temporal hazards
+
+fallback rules
+
+error surface geometry
+
+snapshot resolution at hazardous t-values
+
+
+This is one of the most advanced sections in the entire spec.
+
+
+---
+
+27.1 Categories of Temporal Discontinuities
+
+ZON4D recognizes five classes of time-based hazards.
+
+Each must be marked, handled, and exposed deterministically to downstream systems.
+
+
+---
+
+27.1.1 CLASS A — Hard Discontinuity (Jump)
+
+Definition:
+A keyframe-to-keyframe change that creates an instantaneous jump in value.
+
+Examples:
+
+0.3: health 80
+0.3+: health 20   ; jump
+
+Occurs when two adjacent keyframes share the same timestamp OR when interpolation is disabled.
+
+Status: Legal
+Derivative: Undefined
+Snapshot Provider Handling: Allowed
+AP Visibility: Receives resolved value only
+
+
+---
+
+27.1.2 CLASS B — Soft Discontinuity (Slope Break)
+
+Definition:
+Value is continuous, but the derivative is discontinuous.
+
+Example:
+
+position: cubic at t=0.4 changes curvature suddenly
+
+Status: Legal
+Derivative: Discontinuous but defined on each side
+Snapshot Provider Handling: Allowed
+AP Visibility: Receives resolved scalar; derivative only if explicitly requested
+
+
+---
+
+27.1.3 CLASS C — Undefined Derivative Zone (Plateau / Step)
+
+Definition:
+The slope is zero everywhere except at an instantaneous jump.
+
+Example:
+
+emotion: [calm calm calm] then jump to [rage]
+
+Derivative at the jump is undefined.
+
+Status: Legal
+Snapshot Provider Handling: Must mark derivative as (undefined)
+AP Handling:
+
+AP can query derivative.
+
+If AP queries exactly at the discontinuity:
+→ return DERIVATIVE_UNDEFINED.
+
+AP may not extrapolate.
+
+
+
+---
+
+27.1.4 CLASS D — Temporal Void (Missing + No Schema Default)
+
+Definition:
+Missing field at t, no keyframe, no schema default.
+
+This creates a temporal void, which is illegal.
+
+Status: Illegal
+Snapshot Provider Handling:
+→ Raise TEMPORAL_SCHEMA_CONFLICT.
+
+AP Visibility: None.
+
+
+---
+
+27.1.5 CLASS E — Non-Physical Interpolation Result
+
+Definition:
+Interpolation produces a value that violates schema constraints.
+
+Examples:
+
+cubic overshoot → negative health
+
+emotion smoothing → invalid enum
+
+rotation interpolation → produces NaN
+
+
+Status: Illegal
+Snapshot Provider Handling Modes:
+
+STRICT → error
+
+CLAMP → clamp
+
+SANITIZE → round/coerce
+
+
+AP Visibility: Only the resolved safe value.
+
+
+---
+
+27.2 Temporal Error Surfaces
+
+A temporal error surface is a region of time where the interpolation or fallback rules produce:
+
+undefined results
+
+schema-invalid states
+
+non-recoverable inconsistencies
+
+
+This section defines how surfaces must be detected and handled.
+
+
+---
+
+27.2.1 Definition
+
+For a field f(t):
+
+ErrorSurface(f) = { t | f(t) is undefined OR violates schema OR violates domain }
+
+Surfaces may be:
+
+points (single discontinuity)
+
+intervals (failed interpolation domain)
+
+infinite (corrupted track)
+
+
+
+---
+
+27.2.2 Hard Rule: AP Cannot Query Inside an Error Surface
+
+If AP queries at t where f(t) ∈ ErrorSurface:
+
+Snapshot Provider returns:
+
+TEMPORAL_UNDEFINED
+
+AP must use defaults/fallbacks defined in AP Core v1.1.
+
+
+---
+
+27.3 Discontinuity Zones (DZ)
+
+ZON4D must identify discontinuities and mark them as DZ markers.
+
+Two types exist:
+
+DZ0 — Point Discontinuity
+
+Instantaneous jump at time t.
+
+DZ1 — Interval Discontinuity
+
+Interpolation breaks across a range:
+
+Example:
+
+cubic polynomial crossing domain boundary
+
+division by zero during derivative evaluation
+
+invalid enum interpolation
+
+
+
+---
+
+27.4 Snapshot Resolution at Discontinuities
+
+The Snapshot Provider must resolve state at discontinuity time t using:
+
+Priority:
+
+1. Keyframe exact value (if present)
+
+
+2. Schema default
+
+
+3. Fallback OR sanitized interpolation (depends on mode)
+
+
+
+Derivative rule:
+
+If t is in DZ0 → DERIVATIVE_UNDEFINED
+
+If t is in DZ1 → error OR sanitize
+
+
+
+---
+
+27.5 Derivative Query Contract
+
+When AP asks for d/dt f(t):
+
+If derivative exists (regular region):
+
+→ return scalar
+
+If derivative is discontinuous but defined piecewise:
+
+→ return left- or right-derivative depending on query mode
+
+If derivative is undefined:
+
+→ return:
+
+DERIVATIVE_UNDEFINED
+
+AP must not infer or fabricate derivative values.
+
+
+---
+
+27.6 Canonical Discontinuity Encoding in ZONJ & ZONB
+
+Discontinuities must be encoded explicitly.
+
+JSON/XONJ representation example:
+
+{ "DZ": ["point", 0.6] }
+
+ZONB representation:
+
+event code 0xD0 for point
+
+event code 0xD1 for interval
+
+payload: timestamp(s)
+
+
+This allows temporal replay engines to reason about discontinuities without guesswork.
+
+
+---
+
+27.7 AP-Safe Zones vs. Hazard Zones
+
+ZON4D must tag each sample region:
+
+SAFE_ZONE
+
+continuous
+
+derivative defined
+
+schema-valid
+
+
+HAZARD_ZONE
+
+discontinuity
+
+undefined derivative
+
+schema-invalid region
+
+fallback-sourced region
+
+sanitized region
+
+
+AP may only simulate inside SAFE_ZONE unless using explicit prediction ops.
+
+
+---
+
+27.8 Example: Jump in Emotion Track
+
+emotion(t):
+  0.0: neutral
+  0.3: neutral
+  0.6: rage
+
+At t=0.6:
+
+DZ0 (point jump)
+
+derivative undefined
+
+AP receives: "rage"
+
+
+Derivative query returns:
+
+DERIVATIVE_UNDEFINED
+
+
+---
+
+27.9 Example: Non-Physical Motion Interpolation
+
+Position cubic overshoots:
+
+x(t):
+  keyframes produce cubic
+  cubic dips below 0 (illegal)
+
+Schema: x >= 0
+
+STRICT mode:
+→ Snapshot error
+
+CLAMP mode:
+→ clamp to 0
+
+SANITIZE mode:
+→ clamp, then smooth derivative if requested
+
+
+---
+
+27.10 Summary Statement
+
+> ZON4D must expose every temporal hazard as a first-class entity
+and must never silently normalize undefined or illegal regions.
+
+
+
+This makes your engine 100% deterministic, predictable, and AP-safe, even under gnarly discontinuities.
+
+
+---
+
+Ready for Section 28
+
+Next number in sequence:
+
+28 — Temporal Topology & Multi-Track Synchronization

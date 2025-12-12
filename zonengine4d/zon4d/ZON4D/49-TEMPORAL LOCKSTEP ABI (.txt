@@ -1,0 +1,365 @@
+Section 49 — San Francisco Style.
+Golden Gate locked.
+No bullshit.
+Let’s build the Temporal Lockstep ABI.
+
+You asked for 49, so here comes the chapter that binds the entire engine together —
+the one that makes EngAIn deterministic, synchronized, and impossible to desync.
+
+This is the law that governs how:
+
+ZON4D
+
+AP v1.1
+
+ZWRuntime
+
+ZONB v2
+
+Enginality (coming in 50)
+
+
+all lock into a single unified clock.
+
+This is the “don’t fall off the bridge” chapter.
+
+
+---
+
+49 — TEMPORAL LOCKSTEP ABI (ENGINE ↔ KERNEL ↔ RUNTIME)
+
+(ZON4D Temporal Law, Part X — FINAL)
+
+
+---
+
+49.0 Purpose
+
+ZON4D’s timelines only matter if:
+
+the engine reads them the same way every tick,
+
+AP evaluates them deterministically,
+
+ZONB loads them consistently,
+
+meaning + emotional layers sync correctly,
+
+retcons propagate cleanly, and
+
+Enginality (Section 50+) receives a perfect temporal substrate.
+
+
+The Lockstep ABI ensures all subsystems operate on one shared time axis, with one authoritative state, processed in one deterministic order.
+
+This is the contract that prevents chaos.
+
+
+---
+
+49.1 The Four Clocks
+
+EngAIn actually contains four independent "clocks":
+
+(1) Engine Clock (EC)
+
+Game loop. Tick-by-tick progression.
+
+(2) Kernel Clock (KC)
+
+Internal logical time for AP & rule evaluation.
+
+(3) Narrative Clock (NC)
+
+Temporal reference for story events, flags, and continuity.
+
+(4) Performance Clock (PC)
+
+Enginality’s expressive timing (intensity, pitch, emotion curves).
+
+Lockstep ABI forces all four to align.
+
+
+---
+
+49.2 The Lockstep Tick
+
+Every engine tick, the Lockstep ABI processes subsystems in the following immutable order:
+
+1. Apply pending ZONB deltas
+2. Resolve timeline (anchors, retcons)
+3. Rebuild canonical ZON4D state
+4. AP evaluation (strict or expressive)
+5. Context update
+6. Meaning layer update
+7. Spatial recalculation
+8. Performance prep (Enginality handoff)
+9. Finalize authoritative tick snapshot
+
+Any attempt to change the order = fatal error.
+
+This order is the backbone of the entire system.
+
+
+---
+
+49.3 Atomicity Guarantee
+
+A “tick” is atomic.
+
+Meaning:
+
+> No subsystem can see partial state.
+All subsystems see the same finished canonical tick.
+
+
+
+This prevents:
+
+race conditions
+
+mid-update contradictions
+
+multi-agent desync
+
+AP mis-evaluations
+
+Enginality misfires
+
+
+Everything either completes the tick or the tick is rolled back.
+
+
+---
+
+49.4 Kernel ↔ Runtime ABI
+
+The Kernel (AP/logic) and Runtime (ZW/ZON/Enginality) communicate through 5 calls:
+
+
+---
+
+(1) Kernel.request_state(t)
+
+Runtime returns canonical ZON4D state at tick t.
+
+(2) Kernel.propose_mutation(delta)
+
+Kernel suggests a mutation (potential future delta).
+
+Runtime checks:
+
+anchors (46)
+
+drift thresholds (45)
+
+validity rules (47)
+
+
+If okay → accepted.
+If not → rejected or rewritten.
+
+(3) Kernel.commit()
+
+AP finalizes chosen mutations for this tick.
+
+(4) Runtime.signal_anchor(anchor_state)
+
+Runtime notifies AP of anchor activations.
+
+(5) Runtime.yield_performance_frame()
+
+Prepares Enginality (starting in 50).
+
+
+---
+
+49.5 Deterministic AP Evaluation
+
+AP rules must evaluate in lockstep with canonical state.
+
+Rules:
+
+AP never reads uncommitted deltas.
+
+AP never evaluates while timeline mutates.
+
+AP uses canonical TC-State (45).
+
+AP refuses probabilistic or speculative logic when entropy is high.
+
+AP returns deterministic output for each tick.
+
+
+No exceptions.
+
+This is how AP becomes a real rule engine instead of a “LLM guesser.”
+
+
+---
+
+49.6 Retcon Propagation Contract
+
+If a retcon occurs inside a tick:
+
+(1) freeze the tick
+
+(2) undo partial changes
+
+(3) reapply retcon
+
+(4) purge caches (47)
+
+(5) rebuild canonical state
+
+(6) resume tick from step 3 (49.2 above)
+
+No system ever sees the unstable intermediate.
+
+This ensures timelines never fracture.
+
+
+---
+
+49.7 Branch Resolution Lockstep
+
+Branching timelines only sync at specific points:
+
+tick start
+
+retcon boundary
+
+anchor activation event
+
+drift stabilization boundary
+
+
+Only at these points may branches “merge” or “collapse.”
+
+During the tick, branching attempts are:
+
+queued
+
+validated
+
+merged only at safe boundaries
+
+
+This prevents mid-tick paradox.
+
+
+---
+
+49.8 Enginality Handoff (Critical)
+
+Enginality requires a perfect tick-level synchronization because it runs:
+
+emotional curves
+
+pitch contours
+
+viseme curves
+
+temporal intensity maps
+
+multimodal expressive flow
+
+
+All of these require:
+
+(1) canonical timeline
+(2) validated t-curves
+(3) conflict-free anchor states
+(4) stable meaning frames
+(5) no stale caches
+(6) deterministic context chain
+
+Lockstep ABI guarantees Enginality receives the world in a “perfectly timed” state.
+
+
+---
+
+49.9 Temporal ABI Frames
+
+Every tick outputs a Lockstep Frame:
+
+LockstepFrame {
+    tick: u32,
+    t_global: i64,
+    canonical_hash: u64,
+    anchor_state: AnchorFrame[],
+    drift: DriftMetrics,
+    meaning: MeaningFrame,
+    context: ContextFrame,
+    performance_prepared: bool
+}
+
+Enginality consumes these frames to produce smooth output.
+
+AP uses them for deterministic rule evaluation.
+
+ZONB uses them for delta packing.
+
+
+---
+
+49.10 Hard Law: Lockstep Violations
+
+There are only three categories:
+
+(1) “Tick Desync”
+
+State partially mutated mid-tick.
+→ rollback + re-evaluate tick.
+
+(2) “Temporal Misalignment”
+
+Kernel and Runtime are on different t.
+→ freeze AP, resync clocks.
+
+(3) “ABI Breach”
+
+Illegal call order (e.g., AP evaluating before canonical rebuild).
+→ fatal stop + emergency recovery.
+
+These protect the entire engine from corruption.
+
+
+---
+
+49.11 Summary
+
+The Temporal Lockstep ABI:
+
+synchronizes all clocks
+
+unifies logic, data, meaning, and performance
+
+enforces deterministic rule evaluation
+
+prevents multithreaded desync
+
+provides tick-level atomicity
+
+enables Enginality’s expressive 4D performance
+
+keeps the engine mathematically consistent
+
+
+Section 49 completes the “Temporal Law” foundation.
+
+Now the world is stable enough to let Enginality exist.
+
+
+---
+
+✔️ Section 49 complete.
+
+And now…
+we have reached the gates of Enginality.
+
+If you’re ready:
+
+“Proceed to Section 50 — Enginality Overview.”
+
+This is where the entire engine jumps dimensions.

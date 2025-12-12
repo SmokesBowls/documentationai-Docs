@@ -1,0 +1,343 @@
+Perfect.
+You just described the hardest and most critical part of the entire ZON4D → AP interface:
+
+✔ A formal micro-spec for temporal queries
+
+✔ With deterministic error handling
+
+✔ Including discontinuity semantics
+
+✔ So AP NEVER misinterprets undefined physics as valid signals
+
+We will now define:
+
+SECTION 23 — ZON4D/AP Temporal Query Protocol (Micro-Spec)
+
+The formal I/O contract for all temporal queries.
+No implementation. Pure law.
+This governs AP behavior, ZON4D behavior, and Kernel arbitration.
+
+
+---
+
+⚙️ 23.0 Overview
+
+The ZON4D/AP Query Protocol defines the exact behavior of temporal queries such as:
+
+sample(t)
+
+derivative(t)
+
+range(t0, t1)
+
+event_times(threshold)
+
+next_key(t)
+
+previous_key(t)
+
+state_at(t, mode)
+
+meta()
+
+
+The key principles:
+
+1. Queries must return structured, machine-parseable responses
+
+AP must NEVER infer meaning from missing fields, nulls, or implicit behavior.
+
+2. Every query may return a result OR a canonical error code
+
+Never exceptions. Never nulls. Never silent failures.
+
+3. Discontinuities MUST have defined semantics
+
+Steps
+
+Spikes
+
+Cusps
+
+Zero-length spans
+
+Disconnected key domains
+
+
+4. Derivatives MUST specify undefined behavior explicitly
+
+Example:
+A step function derivative is undefined at the discontinuity.
+
+5. AP MUST NOT guess or compute derived values
+
+ZON4D is the sole oracle.
+
+
+---
+
+🔎 23.1 Response Envelope (Universal Format)
+
+All ZON4D queries return the same outer envelope:
+
+{
+  "status": "ok" | "error",
+  "code": "SUCCESS" | <ERROR_CODE>,
+  "value": <payload or null>,
+  "meta": { ... }   // Uniform metadata for AP reasoning
+}
+
+23.1.1 Status Codes (Top-Level)
+
+status	meaning
+
+ok	Query succeeded and value is valid
+error	Query failed; AP must treat value as undefined
+
+
+23.1.2 Core Error Codes
+
+code	meaning
+
+OUT_OF_RANGE	t outside domain
+NO_DATA	Track exists but has no keys
+UNDEFINED_DERIVATIVE	Derivative does not exist at t
+DISCONTINUITY	t lies exactly at a discontinuity
+UNSUPPORTED	Query not applicable for this track type
+EMPTY_RANGE	t0 > t1 or no samples
+INVALID_QUERY	Bad arguments
+NOT_TEMPORAL	Track is static-only
+
+
+
+---
+
+⏱ 23.2 Sample Query
+
+Input:
+
+{ "t": <float> }
+
+Output (success):
+
+{
+  "status": "ok",
+  "code": "SUCCESS",
+  "value": <interpolated_value>,
+  "meta": {
+    "mode": "linear" | "step" | "cubic" | "bezier",
+    "left_key": <float>,
+    "right_key": <float>,
+    "discontinuity": false
+  }
+}
+
+Output (discontinuity):
+
+If t lies exactly on a step up/down boundary:
+
+{
+  "status": "error",
+  "code": "DISCONTINUITY",
+  "value": null,
+  "meta": {
+    "left_value": <float or vector>,
+    "right_value": <float or vector>,
+    "side_preference": "left" | "right" | "none"
+  }
+}
+
+AP now knows: DO NOT USE THIS VALUE
+Unless AP has custom logic for step transitions.
+
+
+---
+
+📐 23.3 Derivative Query
+
+This is the tricky one you mentioned.
+We must handle:
+
+Constant slope (easy)
+
+Linear segments (simple)
+
+Step functions (undefined derivative)
+
+Instant impulses/spikes
+
+Cubic tangents
+
+Zero-length segments
+
+
+Input:
+
+{ "t": <float> }
+
+
+---
+
+23.3.1 Derivative Success Case
+
+{
+  "status": "ok",
+  "code": "SUCCESS",
+  "value": <float | vector>,
+  "meta": {
+    "segment": {
+      "t0": <float>,
+      "t1": <float>,
+      "interpolation": "linear" | "cubic",
+      "continuous": true
+    }
+  }
+}
+
+
+---
+
+23.3.2 Derivative Undefined (Step/Discontinuity)
+
+This is the case you brought up:
+AP MUST NOT interpret derivative = 0 or ∞ — it must receive a formal undefined.
+
+{
+  "status": "error",
+  "code": "UNDEFINED_DERIVATIVE",
+  "value": null,
+  "meta": {
+    "reason": "DISCONTINUITY_AT_T",
+    "left_value": <float>,
+    "right_value": <float>
+  }
+}
+
+Interpretation Rules (AP):
+
+AP must NOT assume sign
+
+AP must NOT infer direction
+
+AP must NOT collapse to zero
+
+AP must treat as “instant transition”
+
+
+
+---
+
+23.3.3 Derivative Outside Domain
+
+{
+  "status": "error",
+  "code": "OUT_OF_RANGE",
+  "value": null,
+  "meta": { "domain": [t_min, t_max] }
+}
+
+
+---
+
+📚 23.4 Range Query
+
+Z4.range(path, t0, t1)
+
+Returns all keypoints, discontinuities, and interpolated spans within the time window.
+
+
+---
+
+🎯 23.5 Event Query
+
+Z4.event_times(path, threshold, mode)
+
+Modes:
+
+"rising"
+
+"falling"
+
+"any"
+
+"cross"
+
+
+Output returns:
+
+{
+  "status": "ok",
+  "value": {
+    "events": [
+      { "t": 0.45, "type": "rising" },
+      { "t": 0.81, "type": "falling" }
+    ]
+  }
+}
+
+Edge case (no crossings):
+
+{
+  "status": "ok",
+  "value": { "events": [] }
+}
+
+
+---
+
+⚠️ 23.6 Error Contract (Formalized)
+
+AP MUST:
+
+Check status == "ok" before using any value
+
+Check code == "SUCCESS"
+
+Ignore/skip rules on error returns
+
+Never retry or re-calc approximations
+
+
+ZON4D MUST:
+
+Guarantee no exceptions
+
+Guarantee no null escapes
+
+Guarantee all edge cases use this envelope
+
+Guarantee deterministic return for same t
+
+
+
+---
+
+📘 23.7 Summary — You Now Have a Binding Law
+
+This micro-spec is now a formal contract:
+
+No AP agent can make assumptions
+
+No curve discontinuity will create chaos
+
+No step function will return a lie
+
+No derivative will be silently wrong
+
+ZON4D cannot mislead AP
+
+AP cannot misinterpret physics
+
+
+You have achieved temporal determinism.
+
+
+---
+
+🚀 Ready for SECTION 24:
+
+Temporal Consistency & Kernel Arbitration Rules
+
+(How the EmpireKernel prevents AP from desyncing time with parallel queries)
+
+Say “24.” to continue.

@@ -1,0 +1,513 @@
+Alright.
+Here comes Section 41 — the one every future engine dev will study because if you screw this up the whole universe collapses.
+
+This is the Time-Rewind, Undo/Redo, and Branching Semantics chapter — the canonical rules that prevent paradox, state corruption, AP desync, and multi-agent hallucination loops.
+
+This section is long, dense, foundational, and absolutely critical.
+We’re not dumbing it down. We’re carving law into the stone.
+
+
+---
+
+41 — Undo/Redo & Time-Rewind Semantics
+
+ZON4D Specification v0.1 — Temporal Rollback Model
+
+Status: Design-Frozen, Impl-Open
+Depends On:
+
+24 — Schema–Temporal Precedence
+
+25 — AP–ZON4D Snapshot Contract
+
+27 — AP Intent & Commit Protocol
+
+36 — Snapshot Stitching
+
+39 — Temporal Deltas & Patches
+
+40 — Multi-Agent Concurrency & Versioning
+
+
+
+---
+
+41.0 Purpose
+
+Time flows forward.
+Reality is linear.
+But game engines, editors, AP simulations, story forks, and AI agents do not live in a straight line.
+
+You need:
+
+Deterministic rewind
+
+Deterministic replay
+
+Safe branching from any point
+
+Undo/redo for tools
+
+Isolation for experiments
+
+No paradox for players
+
+
+This section defines the only lawful way ZON4D allows time to rewind or replay.
+
+
+---
+
+41.1 Concepts
+
+ZON4D works with 4 core temporal artifacts:
+
+1. Canonical Timeline
+
+The live, player-facing, authoritative progression.
+Only AP determines canonical advancement.
+
+2. Branch Timeline
+
+A fork at a chosen (t, version) created for simulation, testing, or story divergence.
+
+3. Rollback Window
+
+A bounded time interval the engine may rewind (without branching) for redo.
+
+4. Patch Replay Log
+
+The sequential ledger of patch_sets that advanced a timeline from version → version+1.
+
+These 4 elements form the legal machinery of rewind.
+
+
+---
+
+41.2 Absolute Rule of Non-Destructive Time
+
+Time NEVER rewinds destructively in ZON4D.
+
+You cannot mutate the past.
+You cannot overwrite history.
+You cannot erase committed versions.
+
+Instead:
+
+> Rollback clones. Replay rebuilds. Branches diverge.
+There is no direct mutation of prior versions.
+
+
+
+This is the anchor that prevents paradox.
+
+
+---
+
+41.3 Canonical Rollback Model
+
+When the player undoes an action, or a tool rewinds the timeline:
+
+The canonical timeline stays immutable.
+
+A new branch timeline is created.
+
+
+Canonical rollback = branch creation.
+
+You never revert the canonical branch in place.
+
+Example:
+
+Player rewinds 5 seconds?
+→ Create timeline: canonical::rewind_5s_001
+
+That branch starts at snapshot:
+
+(t = canonical_time - 5s, version = canonical_version_at_that_time)
+
+
+---
+
+41.4 Editor Undo/Redo (Local Rollback)
+
+Tools (authoring, debugging) may use local rollback windows:
+
+Only allowed on non-canonical timelines.
+
+Implemented by discarding uncommitted patch_sets.
+
+Not allowed to mutate the ZONB/ZONJ history of a timeline.
+
+
+Local undo is a UI illusion, not a temporal mutation.
+
+
+---
+
+41.5 Branch Creation Rules
+
+Branching requires:
+
+Anchor Snapshot
+
+A resolved temporal snapshot at (timeline_id, version, t).
+
+Branch Timeline
+
+With guaranteed properties:
+
+independent version counter
+
+independent patch_log
+
+independent undo/redo
+
+same schema / same structural identity
+
+
+Fork Metadata
+
+{
+  "from_timeline": "main",
+  "from_version": 4552,
+  "from_time": 133.2,
+  "branch_id": "main::counterattack_path"
+}
+
+No mutation occurs to the parent timeline.
+
+
+---
+
+41.6 Rewind Semantics (Player-Facing)
+
+When a game mechanic rewinds time:
+
+the rewind always creates a branch, even if invisible to player.
+
+canonical timeline is frozen and preserved.
+
+player now lives on the forked timeline.
+
+
+If they later “return to canonical”:
+
+They must jump forward to the canonical moment.
+
+They cannot overwrite canonical state.
+
+
+If AP later chooses to adopt a branch as canonical (rare but possible), it must:
+
+end the canonical timeline,
+
+mark the branch as promoted,
+
+and log a “reality swap event” (engine-defined).
+
+
+
+---
+
+41.7 Replay Semantics (Deterministic Rebuild)
+
+To replay a timeline segment (for simulation or debugging):
+
+Use:
+
+the anchor snapshot at T0,
+
+apply patch sets in the same sequence,
+
+respecting version ordering,
+
+using the same interpolants,
+
+producing deterministic reconstruction.
+
+
+ZON4D MUST guarantee:
+
+Replay(snapshot_T0, patch_log) ALWAYS == original state
+
+If it doesn’t, your entire AP predictive sandbox becomes invalid.
+
+
+---
+
+41.8 Patch Log Requirements
+
+Every timeline must maintain:
+
+patch_log = [
+  { patch_set_id, version_before, version_after, writer_id, deltas, timestamp }
+]
+
+No entries may be deleted.
+
+Even if editor undo removes UI-visible changes, the timeline must:
+
+either fork
+
+or mark the commits as abandoned (but not delete them)
+
+
+This makes the engine audit-safe and deterministic.
+
+
+---
+
+41.9 Temporal Reconstruction Rules
+
+To reconstruct state at time t for replay or branching:
+
+1. Load anchor snapshot (closest earlier snapshot).
+
+
+2. Sequentially apply patch_sets that touch [snapshot_t, t].
+
+
+3. Apply interpolation.
+
+
+4. Apply schema precedence defaults.
+
+
+5. Produce resolved snapshot.
+
+
+
+This guarantees:
+
+deterministic backward compatibility
+
+stable predictive simulation
+
+perfect AP review cycles
+
+
+
+---
+
+41.10 Time-Rewind Window (Optional)
+
+Engines may define a temporal rewind budget:
+
+e.g., you may rewind up to 10 seconds without creating a new branch.
+
+
+This is purely an engine optimization.
+
+But the spec requires:
+
+Even within the rewind window, the parent timeline’s COMMITTED state must not be mutated.
+
+You may revoke uncommitted patch_sets — that’s it.
+
+
+---
+
+41.11 AP-Safe Rewind
+
+AP can rewind for evaluation:
+
+but AP rewinds always create AP-private branches.
+
+no AP rule execution may write backwards into canonical timelines.
+
+AP processes branches in total isolation.
+
+
+This is required for:
+
+hypothetical outcomes
+
+branching storylines
+
+long-range difficulty prediction
+
+agent testing
+
+scenario evaluation
+
+
+
+---
+
+41.12 Redo Model (Forward Reconstruction)
+
+Redo = reapplying patch_sets that were undone.
+
+Since ZON4D does not delete history, redo becomes:
+
+> “Replay from anchor snapshot + patch_sets that were once undone.”
+
+
+
+Redo is just replay through existing logs.
+
+No new rules are needed — the patch_log is the single source of truth.
+
+
+---
+
+41.13 Concurrency & Rewind (Relation to Section 40)
+
+When multiple agents attempt writes near the rewind boundary:
+
+If the timeline is canonical:
+
+no rewind; agents must fork.
+
+
+If the timeline is non-canonical:
+
+rewinding reverts to anchor snapshot of that branch’s origin.
+
+in-flight patch_sets are invalidated with rewind_conflict.
+
+
+
+ZON4D must ensure:
+
+No agent can bypass AP by writing into a “rewound canonical timeline”.
+
+No writer can resurrect obsolete patch_sets after a fork.
+
+
+
+---
+
+41.14 Rewind Conflict Codes
+
+New errors:
+
+canonical_immutable
+
+branch_required
+
+rewind_conflict
+
+invalid_replay_range
+
+missing_anchor_snapshot
+
+replay_inconsistency (if spec violated)
+
+
+
+---
+
+41.15 Example: Player Rewind 10 Seconds
+
+Timeline: main, version 2301
+Player rewinds 10s to time 140.0
+
+ZON4D does:
+
+1. Pull snapshot at t=140.0.
+
+
+2. Create new branch: main::rewind_140_1.
+
+
+3. Set branch version = 0.
+
+
+4. Player now lives on this branch.
+
+
+5. Canonical timeline continues to exist untouched.
+
+
+
+
+---
+
+41.16 Example: AP Simulation Rewind
+
+AP wants to test outcome if an NPC dodges instead of blocking:
+
+1. AP takes canonical snapshot at t=23.6, version=1222.
+
+
+2. AP requests branch: main::ap_test_23_6_001.
+
+
+3. AP applies patch_sets simulating dodge.
+
+
+4. AP runs simulation 5s forward.
+
+
+5. AP reports result; branch discarded or archived.
+
+
+6. Canonical timeline untouched.
+
+
+
+
+---
+
+41.17 Summary of Laws
+
+Here are the laws carved in stone for all future devs:
+
+Law 1 — Canonical Time is Immutable.
+
+No destructive rewind. Branch instead.
+
+Law 2 — Undo is Fork.
+
+Every undo creates a new timeline unless using a tool-only local window.
+
+Law 3 — Replay is Deterministic.
+
+Patch logs + anchor snapshots must perfectly reproduce past states.
+
+Law 4 — Branches Are First-Class Timelines.
+
+Independent versions, independent logs.
+
+Law 5 — AP Cannot Modify Prior Versions.
+
+Only forward patch_sets are allowed.
+
+Law 6 — No Hidden Deletions.
+
+Even “undone” changes must be preserved in patch logs.
+
+Law 7 — No Mixed Reality.
+
+Agents writing after rewind must write to the correct branch or fail.
+
+Law 8 — Time Cannot Be Mutated, Only Interpreted.
+
+All rewinds, replays, and jumps occur through reconstruction + branching.
+
+
+---
+
+41 is complete.
+
+Next natural follow-ups:
+
+42 — Timeline Garbage Collection & Archival
+
+(how to compress, age out, snapshot, prune, and retire long timelines)
+
+or
+
+43 — Timeline Promotion
+
+(how a branch becomes canonical safely)
+
+or
+
+Deep-dive back to AP Query Micro-Protocol
+
+(derivatives, windows, event streaming)
+
+Just tell me: 42, 43, or AP micro-protocol.

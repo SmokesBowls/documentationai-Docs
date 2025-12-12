@@ -1,0 +1,360 @@
+Alright — buckle up.
+Section 46 is one of the most structurally important parts of the entire 40–49 Temporal Law series.
+
+You’re going to feel the weight of it immediately.
+
+
+---
+
+46 — TEMPORAL ANCHORS (Soft, Hard, Immutable)
+
+(ZON4D Temporal Law, Part VII)
+
+
+---
+
+46.0 Purpose
+
+Temporal Anchors are the fixed points that prevent a timeline from tearing itself apart when:
+
+multiple agents write simultaneously
+
+AP rules mutate state
+
+retcons rewrite history
+
+ZONB deltas merge out-of-order
+
+entropy and drift accumulate
+
+Enginality or narrative systems apply performance-based reweighting
+
+
+Without Anchors, ZON4D would collapse under its own complexity.
+
+Anchors create non-negotiable structural invariants the timeline must obey.
+
+They are the “laws of physics” for your data.
+
+
+---
+
+46.1 Three Types of Anchors
+
+ZON4D defines three anchor classes:
+
+
+---
+
+46.1.1 Soft Anchors
+
+These are advisory stabilizers. The engine prefers not to violate them, but can override if needed.
+
+Examples:
+
+“The player arrived in Sundrift before sunset.”
+
+“NPC A met NPC B before Quest X began.”
+
+“Emotion curve should not reset arbitrarily.”
+
+
+These are like gravity —
+you can fight them, but it costs energy.
+
+
+---
+
+46.1.2 Hard Anchors
+
+These are absolute rules the engine cannot break unless explicitly commanded by a Hard Retcon (44.3).
+
+Hard Anchors define:
+
+narrative order
+
+key events
+
+identity rules
+
+canonical flags
+
+deterministically required values
+
+
+Examples:
+
+“Tran was born after the Fall of Tiamat.”
+
+“The 5th Coming prophecy was spoken before the Sundering.”
+
+“Viên’s fragmentation occurred after his sealing.”
+
+“A quest cannot complete before all mandatory conditions are met.”
+
+
+Breaking these requires rewriting the timeline structurally, not locally.
+
+
+---
+
+46.1.3 Immutable Anchors
+
+These are physically unbreakable by definition.
+
+They cannot be retconned.
+They cannot be re-sequenced.
+They cannot be rewritten by any agent, including you.
+
+These define the universe’s metaphysical constants, such as:
+
+the existence of the Aeon Keepers
+
+the Sundering event
+
+the destruction of Tiamat
+
+the identity of the player character
+
+the existence of Void Magic
+
+the fundamental structure of ZON4D itself
+
+
+If a system tries to rewrite an Immutable Anchor, ZON4D raises:
+
+Temporal Catastrophe Error (TCE-1)
+and rolls back the mutation.
+
+These are the bedrock of the entire engine.
+
+
+---
+
+46.2 Anchor Structure
+
+Every Anchor is defined as:
+
+Anchor {
+    id: AnchorID,
+    type: Soft | Hard | Immutable,
+    target: FieldRef | EventRef | EntityRef,
+    constraint: ConstraintExpr,
+    priority: Int,
+    lineage: AnchorLineage, // history and derivation
+    guard: RetconGuard,     // what protects it
+}
+
+
+---
+
+46.3 Anchor Evaluation
+
+Before any mutation, ZON4D evaluates:
+
+Anchor.check(state_before, state_after)
+
+If the mutation violates:
+
+Soft Anchors → engine warns & penalizes
+
+Hard Anchors → mutation is prevented
+
+Immutable Anchors → timeline rollback triggered
+
+
+This ensures determinism.
+
+
+---
+
+46.4 Anchor Priority Levels
+
+Anchor priority determines how multiple anchors interact.
+
+0 — Advisory
+
+Typical Soft Anchors.
+
+1 — Narrative Law
+
+Dialogue, lore, quests, identity preconditions.
+
+2 — Causal Law
+
+Order of events, parent/child relations.
+
+3 — Temporal Law
+
+Vector order, clock invariants, t-curve invariants.
+
+4 — Ontological Law
+
+Primitive truths of the world.
+(Usually Immutable Anchors.)
+
+Priority ensures proper override hierarchy.
+
+
+---
+
+46.5 Anchor Cascades
+
+Mutating one anchored field can trigger cascades:
+
+Soft Cascade
+
+System adjusts related fields to satisfy the Soft Anchor.
+
+Hard Cascade
+
+Engine modifies multiple related fields to maintain the Hard Anchor’s structure.
+
+Immutable Cascade
+
+Mutation attempt triggers:
+
+Full rollback
+
+Delta invalidation
+
+Snapshot restoration
+
+
+This is how the engine enforces metaphysical law.
+
+
+---
+
+46.6 AP Integration
+
+AP rules must respect anchors during evaluation.
+
+AP receives anchor metadata:
+
+AP.getAnchors(entity, range)
+
+And every evaluation cycle:
+
+AP.onAnchorViolation(anchor, severity)
+
+If the AP solver attempts a mutation that violates a Hard or Immutable Anchor, it auto-switches into:
+
+“Strict Deterministic Mode”
+
+This:
+
+prevents probabilistic evaluation
+
+disables meaning blending
+
+forbids soft retcons
+
+disables lookahead
+
+enforces perfect continuity
+
+
+Enginality later relies heavily on this.
+
+
+---
+
+46.7 Anchor Exposure to Narrative & Runtime
+
+Anchors are not hidden. They are readable in:
+
+ZWRuntime
+
+ZWInspector
+
+ZWSandbox
+
+Enginality
+
+AP
+
+Any narrative or gameplay system
+
+
+They form the backbone of true “authorial intent” inside the engine.
+
+
+---
+
+46.8 Anchor-Driven Stabilization (when drift is high)
+
+When Drift exceeds thresholds (from Section 45), Anchors activate:
+
+Soft Anchors → tighten
+
+Hard Anchors → become dominant
+
+Immutable Anchors → enforce rollback mode
+
+
+This is how ZON4D prevents timeline meltdown.
+
+
+---
+
+46.9 Example: NPC Birthdate Conflict
+
+Suppose the timeline has:
+
+NPC born in Year 482
+
+An event remembering them in Year 478
+
+
+This violates causal Hard Anchors.
+
+Engine automatically:
+
+1. Rejects the mutation
+
+
+2. Applies a Hard Cascade
+
+
+3. Forces AP to resolve the logic without breaking causality
+
+
+
+This guarantees coherence no matter how many agents write.
+
+
+---
+
+46.10 Summary
+
+Temporal Anchors:
+
+stabilize multi-agent timelines
+
+enforce causality
+
+preserve narrative truth
+
+maintain metaphysical invariants
+
+protect ZONB deltas
+
+keep AP deterministic under load
+
+prepare the world for Enginality performance logic
+
+
+Anchors are the reason EngAIn’s universe holds together.
+
+
+---
+
+✔️ Section 46 complete.
+
+If you want:
+
+“Proceed with Section 47.”
+
+(Temporal Invalidation & Cache Purge Rules —
+the garbage collector of the 4D universe.)

@@ -1,0 +1,582 @@
+Alright, 32 it is. This is where we nail down exactly how every value in the universe gets crushed into 32 bits and never lies about it.
+
+
+---
+
+32 — Canonical Hashing Rules
+
+Status: Design-Frozen
+Depends On:
+
+24 (Schema–Temporal Precedence)
+
+25 (AP–ZON4D Snapshot Provider)
+
+26 (Derivative & Window Query Semantics)
+
+31 (Temporal Syncpoints & Hash Anchors)
+
+
+This section defines the one true way to hash values for:
+
+Temporal Hash Anchors (THA)
+
+Syncpoint hashes
+
+ZONB integrity tables
+
+AP prediction fingerprints
+
+Cross-engine consistency checks
+
+
+If two engines disagree on a hash, at the same time, for the same snapshot →
+one of them is wrong.
+
+This section makes it impossible to hand-wave that.
+
+
+---
+
+32.0 Goals
+
+Canonical hashing must be:
+
+Deterministic (same input → same hash, forever)
+
+Architecture-independent (32-bit vs 64-bit machines give same result)
+
+Endian-safe (byte order irrelevant at spec level)
+
+Order-stable (maps/dicts do not depend on insertion order)
+
+Fast enough to run on every snapshot/syncpoint
+
+Simple enough that anyone can reimplement it without “magic”
+
+
+This is not crypto.
+This is truth detection, not security.
+
+
+---
+
+32.1 Global Hash Function: HASH32
+
+We define a single global 32-bit hash function:
+
+HASH32(value) → uint32
+
+This is built from:
+
+a canonical serialization of value into a byte sequence
+
+a rolling FNV-1a-style reducer over those bytes
+
+
+32.1.1 Base FNV-1a Variant
+
+We use a fixed variant:
+
+offset_basis = 0x811C9DC5
+prime        = 0x01000193  ; 16777619
+
+Algorithm over a byte stream bytes[0..n-1]:
+
+h = offset_basis
+for each b in bytes:
+    h = h XOR b
+    h = (h * prime) mod 2^32
+return h
+
+This is the only allowed reducer for HASH32.
+
+All complexity is in how we canonicalize values to bytes.
+
+
+---
+
+32.2 Canonical Encoding of Primitive Types
+
+Before hashing, every value is converted into a canonical byte sequence:
+
+ENCODE(value) → byte[]
+
+Then:
+
+HASH32(value) = FNV1a32(ENCODE(value))
+
+32.2.1 Type Tags
+
+We prefix every encoded value with a single-byte type tag:
+
+Type	Tag (hex)
+
+null	0x00
+bool	0x01
+int	0x02
+float	0x03
+string	0x04
+enum	0x05
+list/array	0x06
+object/map	0x07
+
+
+This prevents collisions like:
+
+int 1 vs string "1"
+
+empty list vs empty string
+
+
+If tag differs, hashes differ.
+
+
+---
+
+32.2.2 Null
+
+ENCODE(null) = [0x00]
+
+
+---
+
+32.2.3 Boolean
+
+ENCODE(false) = [0x01, 0x00]
+ENCODE(true)  = [0x01, 0x01]
+
+Only these two encodings are valid.
+
+
+---
+
+32.2.4 Integers (int64, signed)
+
+We use a fixed-width, two’s complement, big-endian representation.
+
+Steps:
+
+1. Tag: 0x02
+
+
+2. Convert integer to signed 64-bit two’s complement.
+
+
+3. Encode as 8 bytes, big-endian.
+
+
+
+So:
+
+ENCODE_INT(x):
+  tag = 0x02
+  payload = int64_to_8_bytes_big_endian(x)
+  return [tag] + payload
+
+Examples (conceptual, not hex-dumped here):
+
+0 → tag + 00 00 00 00 00 00 00 00
+
+42 → tag + 00 00 00 00 00 00 00 2A
+
+-1 → tag + FF FF FF FF FF FF FF FF
+
+
+Any engine using 32-bit native ints must promote to 64-bit before encoding.
+
+
+---
+
+32.2.5 Floats (float32)
+
+Floats must be:
+
+IEEE-754 binary32 (32-bit)
+
+big-endian byte order
+
+no NaN, no ±Inf, no -0 allowed in hashed values
+
+
+Encoding:
+
+1. Tag: 0x03
+
+
+2. Convert value to IEEE-754 binary32.
+
+
+3. If value is -0.0, canonicalize to +0.0 before step 2.
+
+
+4. If value is NaN or ±Inf → SPEC VIOLATION (must be rejected earlier).
+
+
+5. Encode binary32 as 4 bytes big-endian.
+
+
+
+ENCODE_FLOAT(f):
+  f = canonicalize_zero(f)  ; -0.0 → 0.0
+  assert !is_nan(f) and !is_inf(f)
+  tag = 0x03
+  payload = float32_to_4_bytes_big_endian(f)
+  return [tag] + payload
+
+
+---
+
+32.2.6 Strings
+
+Strings are UTF-8 encoded with a length prefix (varint).
+
+Encoding:
+
+1. Tag: 0x04
+
+
+2. Encode length L as unsigned varint.
+
+
+3. Encode string bytes as UTF-8.
+
+
+
+ENCODE_STRING(s):
+  tag = 0x04
+  utf8 = utf8_bytes(s)
+  L = len(utf8)
+  return [tag] + VARINT(L) + utf8
+
+Varint is the same as used in ZONB (Section 13):
+LEB128-style, 7 bits per byte, MSB continuation flag.
+
+
+---
+
+32.2.7 Enums
+
+Enums are hashed as symbolic names.
+
+1. Tag: 0x05
+
+
+2. Encode enum name as lowercase string, UTF-8, with varint length.
+
+
+
+ENCODE_ENUM(sym):
+  tag = 0x05
+  s = lowercase(sym)
+  utf8 = utf8_bytes(s)
+  L = len(utf8)
+  return [tag] + VARINT(L) + utf8
+
+This prevents case-based drift between authors/engines.
+
+
+---
+
+32.3 Canonical Encoding of Composite Types
+
+32.3.1 Lists / Arrays
+
+Lists/arrays must be:
+
+ordered
+
+homogeneous by schema, but hashing does not check that
+
+
+Encoding:
+
+1. Tag: 0x06
+
+
+2. Encode length N as varint.
+
+
+3. For each element eᵢ, append ENCODE(eᵢ).
+
+
+
+ENCODE_LIST(list):
+  tag = 0x06
+  N = len(list)
+  out = [tag] + VARINT(N)
+  for e in list:
+    out += ENCODE(e)
+  return out
+
+
+---
+
+32.3.2 Objects / Maps
+
+Objects (ZONJ objects, ZW-H schema instances) must be key-sorted:
+
+1. Tag: 0x07
+
+
+2. Collect all entries (key, value)
+
+
+3. Sort by key string in lexicographic ascending UTF-8 order
+
+
+4. Encode:
+
+
+
+ENCODE_OBJECT(obj):
+  tag = 0x07
+  entries = sorted(obj.items(), by key lex UTF-8)
+  N = len(entries)
+  out = [tag] + VARINT(N)
+  for (key, value) in entries:
+    out += ENCODE_STRING(key)
+    out += ENCODE(value)
+  return out
+
+This makes hashing independent from map insertion order.
+
+
+---
+
+32.4 Derived Hashes: THA & Syncpoints
+
+32.4.1 Temporal Hash Anchor (THA)
+
+From Section 31:
+
+THA(entity_id, canonical_fields, temporal_fields_resolved,
+    derivative_values, event_flags, schema_version, continuity_marker)
+
+We first build a canonical object:
+
+{
+  "entity_id": "...",
+  "schema_version": "...",
+  "continuity": INT,
+  "fields": { ... },
+  "temporal": { ... },
+  "derivatives": { ... },
+  "events": { ... }
+}
+
+Then:
+
+THA = HASH32( that_object )
+
+Using ENCODE_OBJECT rules above.
+
+
+---
+
+32.4.2 Syncpoint Hash
+
+At time T:
+
+SyncpointHash(T) = FNV1a32_concatenate( THA₁(T), THA₂(T), ..., THAᴺ(T) )
+
+Where:
+
+1. Each THA is a uint32.
+
+
+2. We treat each THA as 4 bytes, big-endian.
+
+
+3. Feed them in stable entity order:
+
+Sorted by entity_id ascending (string)
+
+Or explicit engine-defined ordering, but must be deterministic
+
+
+
+
+Pseudo:
+
+h = offset_basis
+for tha in sorted(THAs_by_entity_id):
+    bytes = uint32_to_4_bytes_big_endian(tha)
+    for b in bytes:
+        h ^= b
+        h *= prime
+return h
+
+This keeps syncpoint computation simple, fast, and reproducible.
+
+
+---
+
+32.5 Small-Hash Helper (Optional Internal)
+
+For internal per-field micro-hashing (like in Section 31’s THA sketch), engines may define:
+
+SMALL_HASH(value) = HASH32(value) mod 2^16
+
+But:
+
+This is optional.
+
+It must not be used for cross-engine contracts.
+
+Only full 32-bit HASH32 is normative at spec level.
+
+
+
+---
+
+32.6 Forbidden Values & Failure Modes
+
+Any attempt to hash:
+
+NaN
+
++Inf / -Inf
+
+non-UTF-8 string
+
+map with duplicate keys after normalization
+
+value that violates schema (e.g., missing required fields)
+
+
+…must be treated as:
+
+HASHING_ERROR
+: invalid canonical input
+
+These cases should be caught earlier by:
+
+ZW-H validator
+
+ZON4D validator
+
+Snapshot Provider contract
+
+
+Hashing assumes canonical, validated input.
+
+
+---
+
+32.7 Example: Hashing a Simple Snapshot
+
+Entity snapshot:
+
+{
+  "id": "npc_guard_01",
+  "hp": 87.5,
+  "position": [4.2, 1.1],
+  "emotion": "anger"
+}
+
+Canonical object for hashing:
+
+{
+  "emotion": "anger",
+  "hp": 87.5,
+  "id": "npc_guard_01",
+  "position": [4.2, 1.1]
+}
+
+(Fields sorted lexicographically.)
+
+Encoding:
+
+Tag 0x07 (object)
+
+N = 4
+
+For each key:
+
+ENCODE_STRING(key)
+
+ENCODE(value) (int/float/string/list)
+
+
+
+Feed bytes into FNV-1a → THA.
+
+You don’t need the actual numeric result in the spec — the important part is:
+any compliant engine will compute the same uint32.
+
+
+---
+
+32.8 Example: Float Canonicalization Edge Case
+
+Two representations:
+
+-0.0
+
++0.0
+
+
+Both must hash identically:
+
+1. canonicalize_zero(-0.0) → 0.0
+
+
+2. Encode as IEEE-754 binary32 0x00000000
+
+
+3. HASH32 sees the same bytes.
+
+
+
+So:
+
+HASH32(-0.0) == HASH32(0.0)
+
+NaN or Inf?
+→ must never reach this layer. They are invalid.
+
+
+---
+
+32.9 Spec Summary
+
+1. All hashing runs through HASH32(value).
+
+
+2. HASH32 is FNV-1a over a canonical byte encoding.
+
+
+3. Canonical encoding is fully specified for:
+
+null, bool, int64, float32, string (UTF-8), enum, list, object
+
+
+
+4. Objects/maps are key-sorted.
+
+
+5. Floats are normalized, no NaN/Inf/-0 allowed.
+
+
+6. THA and Syncpoints are built by hashing canonical objects and assembling THAs.
+
+
+7. Any engine using a different algorithm is non-compliant.
+
+
+
+This is the bedrock:
+if two engines disagree here, nothing else can be trusted.
+
+
+---
+
+If you want, next we can:
+
+33 — Snapshot Diff & Drift Metrics (how to compare two snapshots numerically), or
+
+Slot this hashing spec into the master ZON4D + AP doc as an appendix so future you doesn’t have to dig for it.
+
+
+You pick the next number.

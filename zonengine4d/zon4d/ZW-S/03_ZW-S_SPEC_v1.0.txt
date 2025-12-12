@@ -1,0 +1,424 @@
+Perfect. We lock ZW-S v1.0 exactly as written — but now we codify it into an official, repo-ready spec document.
+No vibes, no fluff. A hard, canonical spec.
+
+Below is the finalized, cleaned, fully-codified ZW_S_SPEC.md ready for direct copy/paste into:
+
+docs/ZW_S_SPEC.md
+
+It is formatted, numbered, stable, and future-proofed.
+
+
+---
+
+ZW-S Specification (Soft ZW Language)
+
+Version: 1.0
+Status: Frozen
+Author: DougieStone
+Date: Dec 1, 2025
+
+
+---
+
+0. Purpose
+
+ZW-S (“Soft ZW”) is the semantic, schema-less, human/LLM-friendly front-end of the ZW language stack.
+It defines syntax, structure, and parsing rules, but no type constraints, no domain knowledge, and no validation.
+
+ZW-S is the format consumed by:
+
+ZW-S → (Pass1/2/3) → ZONJ → ZONB → Godot/AP runtime
+
+This document freezes ZW-S so downstream systems (ZW-H, AP, ZON4D) can depend on it.
+
+
+---
+
+1. Lexical Rules
+
+1.1 Whitespace
+
+Whitespace includes: space, tab, CR, LF.
+
+Whitespace is insignificant except inside string literals.
+
+May appear anywhere between tokens.
+
+
+1.2 Comments
+
+Line comment begins with ; and extends to end of line.
+
+Comments are fully removed before parsing.
+
+
+Example:
+
+; This is a comment
+{npc {id GUARD}} ; inline comment
+
+1.3 Identifiers
+
+Bare tokens that represent unquoted literals or keys.
+
+Pattern:
+
+identifier = [A-Za-z_][A-Za-z0-9_.-]*
+
+Identifiers may represent:
+
+Block keys
+
+Field keys
+
+Scalar string values
+
+Booleans (true/false)
+
+Enum-like symbols (OPENBIT, vrill_manipulation)
+
+
+1.4 String Literals
+
+Must be surrounded by double quotes: "text"
+
+Supports:
+
+\" for quote
+
+\\ for backslash
+
+
+Content otherwise free-form.
+
+
+Example:
+
+{description "a wooden chest"}
+
+1.5 Numbers
+
+Integer: 42, 0, -7
+
+Float: 1.25, 0.0, -0.5, .5 (permissive)
+
+
+Parser behavior:
+
+If matches integer regex → parse as int
+
+If matches float regex → parse as float
+
+Else → identifier/string
+
+
+1.6 Booleans
+
+true → boolean true
+
+false → boolean false
+
+
+1.7 Lists
+
+Lists use square brackets:
+
+{flags [OPENBIT TRANSBIT]}
+{pitch [1.1 0.9 0.7]}
+
+Lists may contain:
+
+scalars
+
+blocks
+
+mixed types (soft mode only)
+
+
+
+---
+
+2. Structural Grammar
+
+Formal grammar (EBNF):
+
+file        := { block | whitespace | comment }
+
+block       := "{" key { value } "}"
+
+key         := identifier
+
+value       := scalar | block | list
+
+scalar      := identifier | string | number | boolean
+
+list        := "[" { value } "]"
+
+Notes
+
+There is no required ordering within a block.
+
+A file may contain multiple top-level blocks.
+
+
+
+---
+
+3. Parsing Semantics (ZW-S → ZONJ)
+
+3.1 Block = Object
+
+A block of form:
+
+{npc
+  {id GUARD}
+  {level 5}
+}
+
+Parses to JSON:
+
+{
+  "npc": {
+    "id": "GUARD",
+    "level": 5
+  }
+}
+
+Behavior:
+
+1. First identifier inside { ... } is the object key.
+
+
+2. Each {field value} pair inside becomes object[field] = value.
+
+
+3. Identifier values become strings unless parsed as number/bool.
+
+
+4. Unknown fields are accepted (soft mode).
+
+
+
+3.2 Scalars
+
+Mapped as:
+
+ZW-S representation	JSON value
+
+HELLO	"HELLO"
+"text"	"text"
+42	42
+0.5	0.5
+true/false	true/false
+
+
+3.3 Lists
+
+Example:
+
+{inventory [POTION SWORD SHIELD]}
+
+→
+
+"inventory": ["POTION", "SWORD", "SHIELD"]
+
+Lists may contain blocks:
+
+{contents [
+  {item {id EXAMPLE} {quantity 1}}
+  {item {id GOLD}    {quantity 50}}
+]}
+
+→
+
+{
+  "contents": [
+    { "item": { "id": "EXAMPLE", "quantity": 1 } },
+    { "item": { "id": "GOLD", "quantity": 50 } }
+  ]
+}
+
+3.4 Multiple Top-Level Blocks
+
+These merge into a top-level multi-object JSON:
+
+{npc {id GUARD}}
+{container {id CHEST}}
+
+→
+
+{
+  "npc": { "id": "GUARD" },
+  "container": { "id": "CHEST" }
+}
+
+
+---
+
+4. Softness Rules (No Schema / No Validation)
+
+ZW-S intentionally does not enforce:
+
+required fields
+
+field types
+
+uniqueness
+
+allowed values
+
+schema validation
+
+domain-specific semantics
+
+
+This allows:
+
+prototyping
+
+LLM generation
+
+flexible authoring
+
+Pass1/2/3 inference
+
+
+Downstream layers handle correctness (ZW-H, AP).
+
+
+---
+
+5. Reserved Prefixes for Future Extensions
+
+Keys beginning with % are reserved and must be passed through unchanged.
+
+Examples:
+
+%schema
+%field
+%type
+%ap_rule
+
+Parser behavior for ZW-S v1.0:
+
+They parse exactly like any other block.
+
+No validation, no semantic meaning yet.
+
+Reserved for ZW-H & AP layers.
+
+
+
+---
+
+6. Examples
+
+6.1 Container
+
+{container
+  {type object}
+  {id CHEST}
+  {description "a wooden chest"}
+  {flags [OPENBIT TRANSBIT]}
+  {contents [
+    {item {id EXAMPLE} {quantity 1}}
+  ]}
+}
+
+→
+
+{
+  "container": {
+    "type": "object",
+    "id": "CHEST",
+    "description": "a wooden chest",
+    "flags": ["OPENBIT", "TRANSBIT"],
+    "contents": [
+      { "item": { "id": "EXAMPLE", "quantity": 1 } }
+    ]
+  }
+}
+
+6.2 NPC
+
+{npc
+  {type character}
+  {id GUARD}
+  {level 5}
+  {health 100}
+  {hostile false}
+  {dialogue [
+    {greeting "Halt! State your business."}
+  ]}
+}
+
+→ JSON exactly as expected.
+
+6.3 Rule (ZON-memory style)
+
+{rule
+  {type zon-memory}
+  {id example_rule}
+  {condition all_of}
+  {requires [
+    {flag condition_met}
+  ]}
+  {effect [
+    {action trigger_event}
+  ]}
+}
+
+
+---
+
+7. Parser Compliance Requirements
+
+A valid ZW-S parser must:
+
+P1: Support the grammar exactly as defined.
+P2: Ignore all comments.
+P3: Correctly parse nested blocks of arbitrary depth.
+P4: Preserve field ordering only as insertion order (stable but not semantic).
+P5: Produce deterministic JSON output for identical inputs.
+P6: Treat unknown fields/structures as valid.
+P7: Treat %directives as normal blocks.
+
+
+---
+
+8. Changelog
+
+v1.0 (2025-12-01)
+
+Initial definition of ZW-S grammar.
+
+Formalized block, list, scalar, identifier rules.
+
+Defined parser semantics for ZW-S → ZONJ.
+
+Reserved % namespace for ZW-H/AP.
+
+Locked “softness” (no schema/no validation).
+
+
+Status: Frozen — extension only via new versions.
+
+
+---
+
+END OF SPEC
+
+
+---
+
+✔️ Ready for Repo
+
+This is clean, surgical, stable, and exactly what a real language spec should look like.
+
+If you want, I’ll now:
+
+→ Generate ZW-H Spec v0.1 (types, enums, required fields, schemas, validation behavior)
+→ Generate AP Spec v0.1 (Anti-Python execution rules, constraints, effects)
+→ Produce ZW-S parser compliance test suite
+
+Just say the word.

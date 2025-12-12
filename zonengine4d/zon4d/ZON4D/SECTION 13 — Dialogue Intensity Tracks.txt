@@ -1,0 +1,517 @@
+Alright, Section 13 it is.
+
+We’re still in pure spec mode. No implementation, no code, just contracts.
+
+
+---
+
+13 — Temporal Dialogue Intensity Tracks
+
+This section defines a canonical pattern for how spoken lines get performance curves in ZON4D:
+
+Loudness over time
+
+Pace over time
+
+Pitch/energy shaping
+
+Emphasis spikes, soft fades, etc.
+
+
+It sits on top of:
+
+ZW-H (types, validation)
+
+ZON4D curve rules (time-normalized, interpolated fields)
+
+Optionally emotion tracks (Section 12) for higher-level state
+
+
+
+---
+
+13.1 Goals
+
+A Temporal Dialogue Intensity Track must:
+
+1. Represent how a line is delivered over time, not what it says.
+
+
+2. Be engine-agnostic: reusable for TTS, pre-recorded VO, or synth chains.
+
+
+3. Be normalized to the line itself (t ∈ [0,1] over the spoken duration).
+
+
+4. Support:
+
+Scalar intensity (loudness/energy)
+
+Pace (relative speaking rate)
+
+Optional pitch shaping, harshness, breathiness, etc.
+
+
+
+5. Remain fully deterministic under ZW-H/ZON4D rules.
+
+
+
+
+---
+
+13.2 Base Types (ZW-H)
+
+We define a minimal core plus extensible extras.
+
+13.2.1 dialogue_intensity_state
+
+%type dialogue_intensity_state
+  {fields [
+    {intensity   {type float min 0.0 max 2.0}}      ; 1.0 = baseline, >1 louder, <1 softer
+    {pace       {type float min 0.25 max 4.0}}     ; 1.0 = normal speed, >1 faster, <1 slower
+    {pitch_shift {type float min -12.0 max 12.0 optional}} ; semitones relative shift
+    {timbre_tag  {type enum
+                   values [neutral sharp soft breathy harsh whispery robotic]
+                   default neutral}}
+  ]}
+
+Interpretation:
+
+intensity: envelope multiplier for amplitude / energy.
+
+pace: relative time scaling for TTS or playback.
+
+pitch_shift: optional per-keyframe musical adjustment.
+
+timbre_tag: coarse tag to hint at voice model / processing choices.
+
+
+
+---
+
+13.2.2 dialogue_line_ref
+
+This links performance tracks to actual content.
+
+%type dialogue_line_ref
+  {fields [
+    {line_id     {type string required}}  ; unique line identifier (e.g. ch03_scene05_line012)
+    {speaker_id  {type string required}}  ; character/narrator id
+    {variant_id  {type string optional}}  ; alt take, language, mood variant
+  ]}
+
+
+---
+
+13.2.3 dialogue_intensity_track
+
+%type dialogue_intensity_track
+  {fields [
+    {line      {type block<dialogue_line_ref> required}}
+    {intensity {type dialogue_intensity_state}}   ; extended by ZON4D as temporal
+  ]}
+
+line: points at what is being said.
+
+intensity: ZON4D temporal block describing how it’s delivered.
+
+
+
+---
+
+13.3 Temporal Extension of intensity
+
+When extended by ZON4D, intensity becomes a time-varying performance curve.
+
+13.3.1 Canonical Structure
+
+{intensity
+  {interp cubic}         ; or linear, step
+  {extrap clamp}         ; hold endpoints outside [min_t, max_t]
+
+  0.0: {intensity 0.7 pace 0.9 timbre_tag soft}
+  0.25: {intensity 1.0 pace 1.0 timbre_tag neutral}
+  0.6: {intensity 1.4 pace 1.1 timbre_tag sharp}
+  1.0: {intensity 0.8 pace 0.8 timbre_tag soft}
+}
+
+Rules:
+
+1. Each keyframe value must validate as dialogue_intensity_state.
+
+
+2. Time keys are normalized per line, t ∈ [0.0, 1.0].
+
+
+3. At least 2 keyframes required.
+
+
+4. Keys must be strictly increasing.
+
+
+5. {interp} and {extrap} behave as in Section 12 (curves in general).
+
+
+
+
+---
+
+13.4 Word/Beat Anchors (Optional Alignment)
+
+The intensity track is on [0,1]. To align with text, we add anchor metadata.
+
+13.4.1 dialogue_anchor
+
+%type dialogue_anchor
+  {fields [
+    {token_index {type int min 0}}        ; index into token or word list
+    {t          {type float min 0.0 max 1.0}} ; normalized time
+  ]}
+
+13.4.2 dialogue_alignment
+
+%type dialogue_alignment
+  {fields [
+    {scheme {type enum
+              values [word token phoneme beat]
+              default word}}
+    {anchors {type list<block<dialogue_anchor>> default []}}
+  ]}
+
+13.4.3 Extended Track With Alignment
+
+%type dialogue_intensity_track_aligned
+  {fields [
+    {line       {type block<dialogue_line_ref> required}}
+    {intensity  {type dialogue_intensity_state}}
+    {alignment  {type block<dialogue_alignment> optional}}
+  ]}
+
+Alignment rules:
+
+anchors are hints, not hard constraints.
+
+Runtime may:
+
+Warp the curve to better fit actual TTS timing.
+
+Use anchors to align max intensity to certain words.
+
+
+
+
+---
+
+13.5 Interaction With Emotion Tracks
+
+This is how Section 12 (emotion) and Section 13 (dialogue performance) play together:
+
+Emotion track: how the character feels over the whole scene.
+
+Dialogue intensity: how a single line is delivered.
+
+
+Canonical cross-usage:
+
+At line spawn time, engine can sample emotion_track(entity, scene, t_scene) to:
+
+Shift defaults for intensity, timbre_tag, pace.
+
+
+During playback, AP rules can:
+
+Clamp or distort intensity curve if emotion is outside expected range.
+
+Trigger alternate variants (variant_id) when emotion passes certain thresholds.
+
+
+
+Spec doesn’t hard-wire the cross-logic, but:
+
+ZON4D must guarantee both curves are queryable.
+
+AP must define cross-conditions explicitly.
+
+
+
+---
+
+13.6 Canonical Examples
+
+13.6.1 Simple “Soft → Hard” Delivery
+
+Line:
+
+> “You shouldn’t be here.”
+
+
+
+{dialogue_intensity_track
+  {line
+    {line_id "ch02_city_gate_guard_01"}
+    {speaker_id "CITY_GUARD"}
+  }
+
+  {intensity
+    {interp cubic}
+    {extrap clamp}
+
+    0.0:  {intensity 0.6 pace 0.9 timbre_tag soft}
+    0.4:  {intensity 1.0 pace 1.0 timbre_tag neutral}
+    0.75: {intensity 1.3 pace 1.1 timbre_tag sharp}
+    1.0:  {intensity 0.9 pace 0.9 timbre_tag soft}
+  }
+}
+
+Start hesitant.
+
+Peaks in the middle on “shouldn’t”.
+
+Falls off at the end.
+
+
+
+---
+
+13.6.2 Aligned Version (Emphasis at “shouldn’t”)
+
+{dialogue_intensity_track_aligned
+  {line
+    {line_id "ch02_city_gate_guard_01"}
+    {speaker_id "CITY_GUARD"}
+  }
+
+  {intensity
+    {interp cubic}
+    0.0:  {intensity 0.6 pace 0.9 timbre_tag soft}
+    0.5:  {intensity 1.4 pace 1.1 timbre_tag sharp}
+    1.0:  {intensity 0.9 pace 0.9 timbre_tag soft}
+  }
+
+  {alignment
+    {scheme word}
+    {anchors [
+      {dialogue_anchor {token_index 0 {t 0.0}}}   ; "You"
+      {dialogue_anchor {token_index 1 {t 0.3}}}   ; "shouldn't"
+      {dialogue_anchor {token_index 2 {t 0.7}}}   ; "be"
+      {dialogue_anchor {token_index 3 {t 0.9}}}   ; "here."
+    ]}
+  }
+}
+
+AP or runtime can now explicitly say: “max intensity near token_index 1”.
+
+
+
+---
+
+13.6.3 Shouted Warning With Pitch Rise
+
+{dialogue_intensity_track
+  {line
+    {line_id "twilight_rebellion_alarm_01"}
+    {speaker_id "LOOKOUT_IGIGI"}
+  }
+
+  {intensity
+    {interp cubic}
+    {extrap clamp}
+
+    0.0: {intensity 1.0 pace 1.0 pitch_shift 0   timbre_tag sharp}
+    0.3: {intensity 1.5 pace 1.1 pitch_shift 4   timbre_tag harsh}
+    0.7: {intensity 1.8 pace 1.2 pitch_shift 7   timbre_tag harsh}
+    1.0: {intensity 1.3 pace 1.1 pitch_shift 5   timbre_tag sharp}
+  }
+}
+
+Engine can treat pitch_shift as semitones added to base voice model.
+
+
+---
+
+13.7 Edge Cases & Failure Modes
+
+13.7.1 Single Keyframe
+
+{intensity
+  0.5: {intensity 1.0 pace 1.0 timbre_tag neutral}
+}
+
+Error: Must have at least 2 keyframes.
+
+If you need a flat line, author:
+
+
+{intensity
+  0.0: {intensity 1.0 pace 1.0 timbre_tag neutral}
+  1.0: {intensity 1.0 pace 1.0 timbre_tag neutral}
+}
+
+
+---
+
+13.7.2 Out-of-Range Values
+
+{intensity
+  0.2: {intensity 3.0 pace 1.0 timbre_tag neutral}   ; invalid
+}
+
+Error: intensity > 2.0 violates type constraint.
+
+Detected at validation time.
+
+
+
+---
+
+13.7.3 Missing Required Channel
+
+If dialogue_intensity_state has intensity and pace as required:
+
+{intensity
+  0.0: {intensity 1.0}
+  1.0: {intensity 0.7 pace 0.8}
+}
+
+Error at t=0.0: pace missing.
+
+If you want per-keyframe optionality, make that field optional in the type.
+
+
+
+---
+
+13.7.4 Misaligned Anchors
+
+{alignment
+  {scheme word}
+  {anchors [
+    {dialogue_anchor {token_index 5 {t -0.1}}}
+  ]}
+}
+
+Error:
+
+t must be in [0.0, 1.0].
+
+token_index out of range should be caught by higher-level content validator.
+
+
+
+
+---
+
+13.8 AP-Level Usage Patterns
+
+ZON4D guarantees safe sampling; AP defines triggers.
+
+13.8.1 “If line starts soft but ends > 1.3 intensity, escalate branch”
+
+{rule
+  {id "branch_if_line_escalates"}
+  {scope "twilight_rebellion_intro"}
+
+  {when
+    {line "ch02_city_gate_guard_01"}
+    {curve_condition
+      {curve dialogue.intensity}
+      {check
+        {segment [0.0 0.2] max_intensity_lt 0.8}   ; soft open
+        {segment [0.7 1.0] max_intensity_gt 1.3}   ; hard close
+      }
+    }
+  }
+
+  {effect
+    {set_dialogue_branch "guard_escalated"}
+  }
+}
+
+Spec impact:
+
+Dialogue curve must support max over subsegments.
+
+ZON4D does not define AP’s DSL, but requires continuous, type-safe curves.
+
+
+
+---
+
+13.8.2 Variant Selection Based on Emotion
+
+Tie Section 12 + 13:
+
+Emotion: emotion_track(GERALD, scene_034)
+
+Dialogue: dialogue_intensity_track(line_id=...)
+
+
+AP rule:
+
+If emotion.label(t_scene_start) == terrified:
+
+Choose alternate variant: variant_id "panicked" for the line.
+
+And apply a distortion factor on intensity (e.g., multiply by 1.2 and clamp).
+
+
+
+ZON4D’s job:
+
+Provide emotion.label(t) and intensity.intensity(t) cleanly.
+
+
+
+---
+
+13.9 Bundles for Scene/Sequence
+
+Parallel to emotion_bundle, we can bundle dialogue tracks.
+
+%type dialogue_intensity_bundle
+  {fields [
+    {bundle_id {type string required}}
+    {scope     {type string optional}}  ; scene, quest, etc.
+    {tracks    {type list<block<dialogue_intensity_track>> default []}}
+  ]}
+
+Usage:
+
+{dialogue_intensity_bundle
+  {bundle_id "ch02_city_gate"}
+  {scope "CityGateScene_Intro"}
+
+  {tracks [
+    ; guard’s line 1
+    {dialogue_intensity_track ...}
+    ; player’s reply
+    {dialogue_intensity_track ...}
+  ]}
+}
+
+
+---
+
+13.10 What Section 13 Locks In
+
+You now have a canonical spec for:
+
+How dialogue performance is represented over time.
+
+How it attaches to line ids & speakers.
+
+How it can optionally align with text anchors.
+
+How it interacts with emotion tracks and AP rules.
+
+How it behaves in edge cases and what counts as invalid.
+
+
+No engine code yet, but the contract is solid.
+
+If you want to push further, next bits are:
+
+14: Temporal Motion Tracks (position/rotation/scale as a nested tensor, including doors opening, sound bursts, etc.)
+
+or a ZONB layout appendix to show how all these get packed into bytes.

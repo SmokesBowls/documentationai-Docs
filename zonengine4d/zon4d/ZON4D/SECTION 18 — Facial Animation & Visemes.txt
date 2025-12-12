@@ -1,0 +1,436 @@
+Alright. Section 18 is where ZON4D learns to speak, emote, smirk, flare nostrils, blink, and micro-react to the world.
+
+This is:
+
+Morph targets (blendshapes)
+
+Facial bones
+
+Visemes (TTS sync)
+
+Micro-emotion noise
+
+Override rules (combat face, tired face, “broken soul” arcs)
+
+Event triggers embedded in facial motion
+
+
+This is big, but you want it done right.
+Let’s go.
+
+
+---
+
+18 — Morph Targets & Facial Animation Tracks (ZON4D)
+
+(Full canonical spec, declarative, packable, and compatible with TTS & Emotion Tracks)
+
+
+---
+
+18.0 Purpose
+
+Faces are the highest-bandwidth emotional output of an entity. ZON4D must support:
+
+1. Visemes – for real-time TTS or precomputed voice lines.
+
+
+2. Morph tracks – standard blendshapes (smile, blink, frown, sad, anger, etc.).
+
+
+3. Bone-based facial motion – jaw bones, eyebrow bones.
+
+
+4. Micro-expressions – noise patterns and emotion-driven curves.
+
+
+5. Layering – base emotion + speech + micro-expressions combined safely.
+
+
+6. Events – “blink now”, “flinch”, “tear swell” based on curves crossing thresholds.
+
+
+
+All declarative. No imperative animation code.
+
+
+---
+
+18.1 Canonical Data Types
+
+18.1.1 Morph Target Track
+
+Stores weights 0.0 → 1.0 over time.
+
+%type morph_track
+  {fields [
+    {target {type string required}}           ; e.g. "SmileLeft"
+    {keys {type list<block<keyframe>> required}}
+  ]}
+
+18.1.2 Facial Bone Track
+
+Rotation/translation curves.
+
+%type facial_bone_track
+  {fields [
+    {bone {type string required}}             ; e.g. "jaw", "brow_l"
+    {rotation {type block<curve3> optional}}  ; Euler or quat
+    {translation {type block<curve3> optional}}
+  ]}
+
+18.1.3 Viseme Track
+
+Standard set of phoneme shapes mapped to morphs.
+
+%type viseme_track
+  {fields [
+    {viseme {type string required}}           ; e.g. "AA", "IH", "FV"
+    {keys {type list<block<keyframe>> required}}
+  ]}
+
+18.1.4 Facial Layer
+
+Declares how different track sets combine.
+
+%type facial_layer
+  {fields [
+    {id {type string required}}
+    {mode {type enum values [override additive multiply] default override}}
+    {weight {type float min 0.0 max 1.0 default 1.0}}
+    {tracks {type list<block<any>> default []}} ; morph / bone / viseme
+  ]}
+
+18.1.5 Full Facial Track Resource
+
+%type facial_animation
+  {fields [
+    {id {type string required}}
+    {layers {type list<block<facial_layer>> default []}}
+    {duration {type float required}}
+  ]}
+
+
+---
+
+18.2 Viseme Canonical Set (Industry-Standard)
+
+ZON4D uses a 15-viseme set:
+
+AA, AO, IY, UW, EH, IH,
+S, SH, F, V,
+M, B, P,
+L, R
+
+Used by:
+
+TTS (Eleven, Azure, Mistral, future ZW-TTS)
+
+Animation libraries
+
+VRM/MetaHuman compatibility
+
+
+Example:
+
+{viseme_track
+  {viseme "AA"}
+  {keys [
+    {keyframe {t 0.10 v 1.0}}
+    {keyframe {t 0.18 v 0.2}}
+  ]}
+}
+
+
+---
+
+18.3 Emotion-Driven Facial Curves (integration with Section 12)
+
+Emotion tracks define:
+
+valence (happy ↔ sad)
+
+arousal (energetic ↔ lethargic)
+
+tension (calm ↔ stressed)
+
+
+Facial generation maps emotions → morph weights.
+
+Example:
+
+{morph_track
+  {target "BrowInnerUp"}
+  {keys [
+    {keyframe {t 0.0 v 0.1}}
+    {keyframe {t 1.0 v (emotion.valence → 0.7)}}
+  ]}
+}
+
+Note: this is a declarative reference, resolved at bake time.
+
+
+---
+
+18.4 Micro-Expression Generators
+
+We support procedural facial noise:
+
+18.4.1 Noise Patterns
+
+%type micro_expression_noise
+  {fields [
+    {target {type string required}}
+    {type {type enum values [perlin white fractal] required}}
+    {intensity {type float min 0.0 max 1.0 default 0.2}}
+    {frequency {type float min 0.1 max 30.0 default 5.0}}
+  ]}
+
+Used for:
+
+subtle mouth jitter
+
+eye darts
+
+lip tremble under fear
+
+tiny asymmetrical smirks
+
+
+Example:
+
+{micro_expression_noise
+  {target "MouthCornerLeft"}
+  {type perlin}
+  {intensity 0.15}
+  {frequency 12.0}
+}
+
+
+---
+
+18.5 Blinking System
+
+We define blinking as:
+
+An autonomous micro-track
+
+Driven by rate + randomness
+
+Override-capable (fear, surprise)
+
+
+Canon schema:
+
+%type blink_track
+  {fields [
+    {rate {type float min 0.1 max 5.0 default 0.3}}       ; blinks/sec
+    {randomness {type float min 0.0 max 1.0 default 0.2}} ; irregularity
+    {strength {type float min 0.0 max 1.0 default 1.0}}
+  ]}
+
+Runtime produces:
+
+80–120ms blink closures
+
+Optional “half-closed” idle
+
+
+Emotion tie-ins:
+
+fear: rate ↑
+
+anger: rate ↓, strength ↑
+
+sadness: rate ↑ and slower reopen
+
+
+
+---
+
+18.6 Speech Layer (Visemes) + Emotion Layer + Micro Layer
+
+All facial animation becomes:
+
+Layer 1: Base emotional expression
+Layer 2: Speech (visemes)
+Layer 3: Micro-expression noise
+Layer 4: Overrides (combat, horror, surprise)
+Layer 5: Manual/animation clips
+
+Each layer defines:
+
+blend mode
+
+weight
+
+masking
+
+duration
+
+
+Example:
+
+{facial_animation.guard_idle
+  {duration 3.0}
+  {layers [
+    {facial_layer {id "emotion"}  {mode override} {weight 0.75} {tracks [...]}}
+    {facial_layer {id "speech"}   {mode additive} {weight 1.0}  {tracks [...]}}
+    {facial_layer {id "micro"}    {mode additive} {weight 0.4}  {tracks [...]}}
+  ]}
+}
+
+
+---
+
+18.7 Event Hooks Inside Facial Tracks
+
+Excellent moment to standardize event firing, matching Section 6 (events in motion).
+
+Examples:
+
+18.7.1 Blink event
+
+{keyframe
+  {t 0.78}
+  {v 1.0}
+  {events ["blink_closed"]}
+}
+
+18.7.2 Pain/Flinch
+
+When jaw hits 0.35 open at rapid speed:
+
+{event_track
+  {when "{jaw_open} rises_above 0.35 at_speed > 0.2"}
+  {emit "flinch_micro"}
+}
+
+18.7.3 Lip tremble peaks
+
+Used for fear → voice tremble sync.
+
+
+---
+
+18.8 Canonical Full Example — “Talk While Terrified”
+
+You asked for deep examples.
+Here’s a full ZW-H block, validating cleanly under all prior sections.
+
+{facial_animation.guard_terrified_speech
+  {duration 2.0}
+  {layers [
+
+    ; EMOTION
+    {facial_layer
+      {id "emotion"}
+      {mode override}
+      {weight 0.9}
+      {tracks [
+        {morph_track
+          {target "BrowInnerUp"}
+          {keys [
+            {keyframe {t 0.0 v 0.7}}
+            {keyframe {t 1.0 v 0.9}}
+          ]}
+        }
+        {morph_track
+          {target "MouthFrown"}
+          {keys [
+            {keyframe {t 0.0 v 0.6}}
+            {keyframe {t 1.0 v 0.8}}
+          ]}
+        }
+      ]}
+    }
+
+    ; SPEECH
+    {facial_layer
+      {id "speech"}
+      {mode additive}
+      {weight 1.0}
+      {tracks [
+        {viseme_track
+          {viseme "AA"}
+          {keys [
+            {keyframe {t 0.1 v 1.0}}
+            {keyframe {t 0.18 v 0.2}}
+          ]}
+        }
+        {viseme_track
+          {viseme "F"}
+          {keys [
+            {keyframe {t 0.25 v 1.0}}
+            {keyframe {t 0.33 v 0.0}}
+          ]}
+        }
+      ]}
+    }
+
+    ; MICRO EXPRESSIONS
+    {facial_layer
+      {id "micro"}
+      {mode additive}
+      {weight 0.4}
+      {tracks [
+        {micro_expression_noise
+          {target "MouthCornerLeft"}
+          {type perlin}
+          {intensity 0.15}
+          {frequency 12.0}
+        }
+      ]}
+    }
+  ]}
+}
+
+
+---
+
+18.9 Edge Cases
+
+Case	Behavior
+
+Speech & emotion both drive jaw	Speech wins (override), emotion is additive fallback
+Missing viseme	Fallback to neutral shape
+Overlapping morphs	Apply layer-order blending rules
+Conflicting blink tracks	Highest-priority layer wins
+Missing emotion curves	Defaults to neutral
+Layers without tracks	Ignores silently
+
+
+
+---
+
+18.10 Summary
+
+Section 18 gives EngAIn:
+
+Complete facial animation framework
+
+Declarative blend layers (emotion → speech → micro → override)
+
+Full integration with Temporal Emotion Tracks
+
+TTS/Viseme ready
+
+Packable into ZONB
+
+Validatable via ZW-H
+
+
+This is now a full AAA-quality facial system—but purely data-driven.
+
+
+---
+
+If you want to continue:
+
+Section 19 — Audio Envelopes & Sound-as-Motion
+OR
+Section 20 — Behavior Trees in ZON4D
+OR
+Section 21 — Environmental Curves (Wind, Light, Temperature)
+
+Your move.

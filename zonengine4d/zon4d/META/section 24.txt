@@ -1,0 +1,278 @@
+You nailed it — this is the most dangerous edge-case in the entire EngAIn stack, because it’s the only place where two different “truth engines” collide:
+
+ZW-H: structure, invariants, required fields
+
+XON4D: temporal interpolation, compression, omission for efficiency
+
+
+And if you don’t lock the hierarchy now, the system becomes nondeterministic and silently corrupts data downstream.
+
+So here is the formal, spec-ready, canonical solution exactly as you described — polished into a hard engineering contract that solves the conflict forever.
+
+
+---
+
+✅ **XON4D v0.1 — Section 24
+
+Schema–Temporal Precedence Chain (Non-Negotiable Ordering)**
+(This is the bridge law that prevents ZW-H integrity violations inside temporal tensors.)
+
+
+---
+
+24.1 Problem Summary
+
+XON4D allows temporal fallback:
+
+> Missing fields in a keyframe inherit their value from the nearest earlier keyframe.
+
+
+
+This is ideal for compression — but it breaks ZW-H schema invariants, because:
+
+A required field missing at t=0.6 is illegal in ZW-H
+
+Temporal fallback would hide that violation
+
+Downstream systems (AP, AI agents, runtime) might deserialize only the 0.6 state
+
+Required field appears missing → validation failure
+
+Or worse, fallback gives the illusion of correctness → silent data corruption
+
+
+ZW-H MUST ALWAYS BE THE SOURCE OF TRUTH.
+Temporal continuity is secondary.
+
+
+---
+
+🔥 24.2 The Mandatory Precedence Hierarchy (source-of-truth chain)
+
+When XON4D attempts to resolve a field at time t, values must be taken in this exact order:
+
+
+---
+
+(1) Explicit value at keyframe t
+
+Always wins.
+
+If the keyframe provides:
+
+{emotion 0.6: rage}
+
+Then “rage” is the value, even if earlier frames disagree.
+
+
+---
+
+(2) ZW-H schema default value
+
+Only if the field is optional AND there is no explicit value at t.
+
+This preserves schema guarantees:
+
+emotion default neutral
+
+So if keyframe omits emotion entirely, neutral is used — NEVER inherited.
+
+
+---
+
+(3) Temporal fallback (nearest earlier valid keyframe)
+
+Used only when:
+
+the field is optional
+
+AND the field has no explicit value
+
+AND the schema has no default
+
+
+Example:
+
+%type position
+  {fields [
+    {x {type float default 0.0}}
+    {y {type float default 0.0}}
+    {z {type float default 0.0}}
+  ]}
+
+Temporal fallback only applies to fields without defaults.
+
+
+---
+
+(4) Error (missing required field)
+
+If a required field is missing AND:
+
+no explicit value
+
+no schema default
+
+no temporal fallback allowed (required fields forbid fallback)
+
+
+Then XON4D MUST emit:
+
+missing_required_field
+
+Even inside temporal playback.
+
+
+---
+
+🔒 24.3 Hard Rule: Required Fields Cannot Use Temporal Fallback
+
+This is the core fix.
+
+Required fields must exist in EVERY resolved temporal state.
+If a required field is missing at time t, it is a schema violation — not a compression opportunity.
+
+This prevents:
+
+Silent invalid states
+
+Hidden data corruption
+
+AP rule failures
+
+Cross-engine deserialization inconsistencies
+
+Nondeterministic gameplay behavior
+
+
+Required means required at every resolved timestep.
+
+
+---
+
+📘 24.4 Why This Hierarchy Works
+
+1. ZW-H schema integrity is preserved
+
+The schema always wins.
+Temporal logic can never mutate structural truth.
+
+2. Compression still works
+
+Optional fields without defaults still inherit via temporal fallback.
+
+3. Deterministic behavior across engines
+
+Every engine (AP, runtime, editor tools) sees the same resolved frame.
+
+4. Debugging becomes possible
+
+Missing required fields fail early instead of creating phantom states.
+
+
+---
+
+🔍 24.5 Example—Correct Behavior
+
+Schema:
+
+%type npc_state
+  {fields [
+    {id {type string required}}
+    {health {type int default 100}}
+    {emotion {type enum values [calm alert angry] optional}}
+    {x {type float required}}
+  ]}
+
+XON4D track:
+
+{id
+  0.0: "GUARD_01"
+}
+
+{x
+  0.0: 1.0
+  0.5: 2.0
+}
+
+{emotion
+  0.0: calm
+  0.8: angry
+}
+
+Resolve at t=0.5:
+
+Field	t=0.5 value	Reason
+
+id	"GUARD_01"	required → no default → fallback allowed? NO (required → fallback forbidden) → must repeat at EVERY frame
+x	2.0	explicit
+health	100	schema default
+emotion	calm	no explicit @0.5 → optional → no default → fallback to nearest earlier
+
+
+Result at 0.5:
+
+id = ERROR (missing required field)
+x = 2.0
+health = 100
+emotion = calm
+
+This is EXACTLY correct — the system catches the compression mistake.
+
+
+---
+
+⚠️ 24.6 Temporal Compression Rule Update
+
+To preserve schema integrity:
+
+> Required fields must be explicitly present at least in the first keyframe (t=0).
+
+Their values at later keyframes may omit explicit entries only if the runtime supports “required field propagation”.
+
+
+
+But crucially:
+
+Propagation is not fallback.
+It is a schema-level guarantee that required fields are duplicated internally during compilation.
+
+Thus:
+
+Editors may omit them
+
+XON4D compiler must insert them after validation
+
+Required fields never “disappear” in temporal space
+
+
+
+---
+
+🧩 24.7 Final Summary (Spec-Ready Sentence)
+
+> When resolving a temporal XON4D value at time t, the value source-of-truth order shall be: (1) explicit-at-t, (2) ZW-H default, (3) temporal fallback (optional-only, no-default fields), (4) error for required fields. Temporal fallback shall never apply to required fields.
+
+
+
+This is the law.
+
+
+---
+
+If you'd like, I can now:
+
+🔧 Write Section 24.8 — Temporal Validation Algorithm (pseudo-code)
+
+so you can drop it right into the spec.
+
+Or we can move forward to:
+
+25 – Integration with AP Query Engine
+
+26 – Interpolation contract
+
+27 – Temporal indexing & storage layout
+
+
+Just say the word.

@@ -1,0 +1,462 @@
+28 — Temporal Topology & Multi-Track Synchronization
+
+Status: Frozen
+Depends On: Sections 24–27, Snapshot Provider Contract, ZON4D v0.1
+
+This is the section where your engine stops acting like “just a timeline”
+—and becomes a temporal graph engine.
+
+This section establishes the formal rules for synchronizing multiple 4D tracks across:
+
+characters
+
+items
+
+locations
+
+world systems
+
+particle fields
+
+dialogue
+
+AP rules
+
+
+…without ever letting two temporal truths contradict each other.
+
+It is the spine of deterministic simulation.
+
+
+---
+
+28.0 Purpose
+
+Define the topology, alignment, and synchronization rules for all temporal tracks so that:
+
+the runtime knows how to align tracks
+
+AP can query bundled states
+
+ZON4D can resolve composite snapshots
+
+no cross-track contradictions occur
+
+replay is deterministic
+
+predictive sandbox can freeze whole-state bundles
+
+
+
+---
+
+28.1 Temporal Topology Overview
+
+ZON4D defines a temporal graph where each track is a node.
+
+Edges represent:
+
+synchronization links
+
+dependency links
+
+co-evaluation windows
+
+cross-track event coupling
+
+
+This gives you a temporal DAG (Directed Acyclic Graph).
+
+Every temporal track lives at a t in global time.
+
+There is no per-track local time (that would break determinism).
+
+
+---
+
+28.2 Track Types
+
+28.2.1 Independent Tracks
+
+Tracks that evolve independently but share the same global clock.
+
+Examples:
+
+NPC emotion curve
+
+Weather intensity
+
+Portal oscillation
+
+
+28.2.2 Coupled Tracks
+
+Tracks that influence each other.
+
+Examples:
+
+“NPC animation speed” depends on “NPC fatigue”
+
+“Door motion” depends on “door motor torque”
+
+“Wizard aura size” depends on “mana pool oscillations”
+
+
+28.2.3 Hierarchical Tracks
+
+Parent track controls normalization of child track.
+
+Examples:
+
+Skeleton root transforms vs. joint local transforms
+
+Vehicle velocity vs. wheel spin
+
+Dialogue intensity vs. face animation
+
+
+
+---
+
+28.3 Synchronization Points (SP)
+
+A Synchronization Point is a timestamp where tracks must align.
+
+Represented as:
+
+SP { t: 0.6 tracks: [emotion, rotation, velocity] }
+
+SP Rules:
+
+1. All listed tracks must be evaluable at t.
+
+
+2. Snapshot Provider must deliver a full combined snapshot.
+
+
+3. Undefined derivative in ANY track → entire SP marked HAZARD.
+
+
+4. AP queries on SPs always return synchronous bundles.
+
+
+
+
+---
+
+28.4 Multi-Track Bundle Snapshot
+
+The Snapshot Provider must support bundle queries:
+
+query_bundle(entity, t)
+
+Returns:
+
+{
+  "emotion": resolved_scalar_or_enum,
+  "position": [x,y,z],
+  "rotation": quat,
+  "velocity": [dx,dy,dz]
+}
+
+Rules:
+
+All fields resolved to t.
+
+All derivatives resolved OR marked undefined.
+
+All discontinuity hazards propagated.
+
+
+
+---
+
+28.5 Temporal Dependency Graph
+
+Every multi-track entity has a DAG:
+
+emotion → face_animation
+face_animation → blendshape_weight
+position → velocity → acceleration
+mana → aura_size → particle_density
+
+Rules:
+
+1. Dependencies cannot form cycles.
+
+
+2. Parent track must be evaluated BEFORE child track at time t.
+
+
+3. Discontinuity in parent propagates to child.
+
+
+4. Child may sanitize, but AP sees sanitized result only.
+
+
+5. ZON4D must encode the DAG so the playback engine knows evaluation order.
+
+
+
+
+---
+
+28.6 Global Timebase
+
+All tracks operate on a unified global timebase.
+
+Timebase rules:
+
+1. Time t is a float64.
+
+
+2. All keyframes exist in this unified time space.
+
+
+3. No track may define “relative” time without a mapping.
+
+
+4. All interpolation functions must be evaluated using the global t.
+
+
+5. Snapshot Provider must align all tracks to global time during bundle queries.
+
+
+
+No per-track time drift is allowed.
+
+
+---
+
+28.7 Track Alignment Rules
+
+When two tracks need to be synchronized:
+
+If both have keyframes:
+
+Use their own interpolation to resolve values.
+
+
+If one lacks a keyframe near t:
+
+Use temporal fallback → but schema precedence still rules
+→ (Section 24 precedence chain)
+
+
+If one is in HAZARD_ZONE:
+
+Entire bundle inherits HAZARD_ZONE
+
+AP receives "TEMPORAL_UNDEFINED" for affected fields
+
+
+
+---
+
+28.8 Cross-Track Derivative Contract
+
+When AP asks for d/dt across multiple fields:
+
+d/dt bundle
+
+Rules:
+
+1. Derivative only defined if all fields define derivatives at t.
+
+
+2. Discontinuity in any track → derivative is undefined for the bundle.
+
+
+3. Bundle derivative must be returned as tuple or map.
+
+
+
+Example:
+
+{
+  "rotation": DERIVATIVE_UNDEFINED,
+  "velocity": [0.1, 0.0, -0.4],
+  "emotion": DERIVATIVE_UNDEFINED
+}
+
+AP sees it cleanly.
+
+
+---
+
+28.9 Cross-Track Event Synchronization
+
+When multiple tracks hit event thresholds at (roughly) the same time:
+
+If t timestamps differ by ≤ ε (epsilon):
+
+They must be treated as synchronized composite events.
+
+@0.6000: emotion=rage
+@0.6001: heart_rate=150
+
+ε default = 0.001 seconds.
+
+Snapshot Provider merges these into a combined event group.
+
+This becomes CRITICAL for:
+
+combat triggers
+
+boss phases
+
+environmental hazards
+
+multi-system animations
+
+
+
+---
+
+28.10 Composite Hazard Propagation
+
+If a hazard appears in any track:
+
+Composite Rules:
+
+1. All bundle evaluations must carry the hazard metadata.
+
+
+2. AP receives clean hazard flags separately from the snapshot.
+
+
+3. Hazard must not silently sanitize unless mode=SANITIZE.
+
+
+4. If a track violates schema, the entire bundle is INVALID at t.
+
+
+
+This guarantees:
+
+consistency
+
+determinism
+
+safety
+
+
+
+---
+
+28.11 Example — NPC Emotion/Animation Synchronization
+
+emotion(t):
+  0.0: neutral
+  0.6: rage
+
+face_anim_intensity(t):
+  0.3: 0.0
+  0.6: 1.0
+
+At t=0.6:
+
+Emotion jumps → DZ0
+
+Face animation is continuous
+
+Bundle is valid
+
+Bundle derivative is undefined
+
+AP sees:
+
+
+{
+  "emotion": "rage",
+  "face_anim_intensity": 1.0
+}
+
+
+---
+
+28.12 Example — Position + Rotation + Velocity
+
+Position cubic overshoot at t=0.42 (CLAMP mode);
+Rotation has continuous quaternion interpolation;
+Velocity is linearly extracted from position.
+
+Bundle snapshot:
+
+{
+  "position": [0, 0.5, 0],   ; clamped
+  "rotation": quat,
+  "velocity": DERIVATIVE_UNDEFINED
+}
+
+HazardZone = true
+DerivativeHazard = "position"
+
+
+---
+
+28.13 Example — Heartbeat + Breathing + Stamina + Emotion
+
+Time 4D bundle:
+
+heartbeat(t) (high freq)
+
+breathing(t) (low freq)
+
+stamina(t) (monotonic decay)
+
+emotion(t) (discrete jumps)
+
+
+At t=15.47:
+
+heartbeat discontinuity → DZ0
+
+breathing fine
+
+stamina fine
+
+emotion neutral → rage at t=15.50
+
+
+Bundle state must:
+
+1. Resolve all fields
+
+
+2. Mark entire bundle as hazard
+
+
+3. Return clean value snapshot
+
+
+4. Provide derivative map where legal
+
+
+5. Not crash the AP rules engine
+
+
+
+
+---
+
+28.14 Summary Statement
+
+> Temporal topology ensures all ZON4D tracks behave like a coherent deterministic universe rather than isolated animations.
+
+
+
+This is the section that lets your engine simulate living worlds, not “floating timelines”.
+
+
+---
+
+Ready For Section 29
+
+The next major logical piece is:
+
+29 — Temporal Merge & Retcon Rules
+
+(how to safely rewrite history in ZON4D without corrupting the forward timeline)
+
+Just say “29”.

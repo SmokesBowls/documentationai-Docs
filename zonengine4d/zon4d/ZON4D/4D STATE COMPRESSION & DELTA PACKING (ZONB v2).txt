@@ -1,0 +1,463 @@
+Alright — Section 48 is the compression heart of ZON4D.
+
+This is where everything becomes real, because once we define 4D compression and delta packing, ZONB becomes a true spacetime container, not just a binary blob.
+
+Let's cut into it.
+
+
+---
+
+48 — 4D STATE COMPRESSION & DELTA PACKING (ZONB v2)
+
+(ZON4D Temporal Law, Part IX)
+
+
+---
+
+48.0 Purpose
+
+ZON4D stores:
+
+Time (T)
+
+Space (S)
+
+Context (C)
+
+Meaning (M)
+
+
+This is 4D state.
+
+But storing this raw would be massive and slow.
+
+Section 48 defines how EngAIn compresses 4D state into ZONB, a compact binary representation that supports:
+
+high-speed persistence
+
+timeline replay
+
+temporal rollback
+
+multi-agent synchronization
+
+deterministic AP evaluation
+
+Enginality performance streaming
+
+
+This is the official ZONB v2 compression law.
+
+
+---
+
+48.1 WHAT GETS COMPRESSED
+
+48.1.1 Scalars
+
+ints
+
+floats
+
+bools
+
+enums
+
+small strings
+
+
+Compress to fixed-width markers.
+
+48.1.2 Vectors / Curves
+
+Any time-indexed field is a curve:
+
+x@t: [0 → 1 → 3 → 4]
+emotion.intensity@t: bezier(...)
+voice.pitch@t: f(x)
+
+Curves become first-class binary sequences.
+
+48.1.3 Branch Metadata
+
+Branches include:
+
+divergence points
+
+anchor interactions
+
+entropy metrics
+
+retcon boundaries
+
+
+Packed as header frames.
+
+48.1.4 Meaning Frames
+
+Emotional & semantic states:
+
+tone
+
+intent
+
+archetype
+
+resonance
+
+theme
+
+
+Compressed via lookup-table encoding (LUT).
+
+
+---
+
+48.2 COMPRESSION PHILOSOPHY
+
+ZONB is not:
+
+ZIP
+
+LZ4
+
+DEFLATE
+
+brotli
+
+
+Those are blind compressors.
+
+ZONB v2 is aware of ZON4D ontology, which means:
+
+✔️ It knows what fields mean
+
+✔️ It knows how time behaves
+
+✔️ It knows what curves are
+
+✔️ It knows retcon boundaries
+
+✔️ It knows anchors
+
+✔️ It knows how meaning evolves
+
+This makes compression drastically more efficient.
+
+
+---
+
+48.3 4D HEADER FORMAT
+
+Every ZONB 4D blob begins with this header:
+
+ZONB4DHeader {
+    magic: 0x5A4F4E34,   // "ZON4"
+    version: 2,
+    flags: Bitmask,
+    anchor_count: u16,
+    branch_count: u16,
+    delta_count: u32,
+    t_min: i32,
+    t_max: i32,
+    hash: u64,           // integrity hash
+}
+
+
+---
+
+48.4 DELTA PACKING MODEL
+
+The core idea:
+
+**Store only what changed.
+
+Never store what stayed the same.**
+
+ZON4D represents changes as Δ, the temporal delta.
+
+A delta is:
+
+Delta {
+    field_id: u16,
+    t: i32,
+    type: DeltaType,
+    payload: bytes,
+}
+
+DeltaTypes:
+
+SCALAR_DIFF
+
+CURVE_APPEND
+
+CURVE_REWRITE
+
+ANCHOR_BIND
+
+ANCHOR_BREAK
+
+BRANCH_CREATE
+
+BRANCH_MERGE
+
+MEANING_SHIFT
+
+CONTEXT_UPDATE
+
+FLAG_UPDATE
+
+ENTITY_MUTATION
+
+
+
+---
+
+48.5 DELTA ROLLUP
+
+When similar deltas cluster, ZONB rolls them up into a single entry:
+
+Δ1: x@t=1 -> 5
+Δ2: x@t=2 -> 6
+Δ3: x@t=3 -> 7
+
+Rolled → Δ: {field:x, t_range:1..3, method:linear, base:5, slope:1}
+
+This is how curves are compressed.
+
+Rollup drastically reduces ZONB size.
+
+
+---
+
+48.6 CURVE COMPRESSION
+
+Curve compression supports:
+
+(1) Linear Models
+
+Polynomial degree 1
+(slope + intercept)
+
+(2) Quadratic Models
+
+Polynomial degree 2
+(curvature)
+
+(3) Cubic Models
+
+Polynomial degree 3
+
+(4) Bezier / Control Points
+
+When emotional or performance curves require expressive shape.
+
+(5) Sparse Keyframes
+
+For stepwise logic.
+
+
+---
+
+48.7 SPATIAL PACKING (S-DIMENSION)
+
+Spatial data includes:
+
+positions
+
+velocities
+
+parent/child relations
+
+spatial links
+
+
+The S-dimension uses:
+
+delta position encoding
+
+neighbor compression
+
+parent-index referencing
+
+sparse link tables
+
+
+This lets large world graphs compress efficiently.
+
+
+---
+
+48.8 CONTEXT PACKING (C-DIMENSION)
+
+Context (flags, world-state, knowledge) uses:
+
+bitfields for flags
+
+varints for integers
+
+dictionary packing for known keys
+
+reference compression for repeated strings
+
+deduplication for knowledge objects
+
+
+Contextal changes are typically small → easy compression.
+
+
+---
+
+48.9 MEANING PACKING (M-DIMENSION)
+
+The meaning layer is compressed differently:
+
+Meaning ≠ Data
+
+Meaning = semantic weight or emotional state.
+
+Encoded as:
+
+MeaningFrame {
+    tone_id: u8,
+    mood_valence: i8,
+    mood_arousal: i8,
+    theme_id: u8,
+    resonance: u8,
+}
+
+IDs refer to LUT tables in header.
+
+This is tiny to store and cheap to decode.
+
+
+---
+
+48.10 RETCON-AWARE PACKING
+
+ZONB is fully retcon-aware.
+
+When a retcon rewrites the past:
+
+✔️ all deltas after the retcon point are repacked
+
+✔️ curve segments get rewritten
+
+✔️ meaning/semantic frames are shifted
+
+✔️ branch metadata is collapsed
+
+Retcons are not “patches.”
+They are true rewrites, and ZONB treats them as such.
+
+This is what makes ZON4D deterministic.
+
+
+---
+
+48.11 BRANCH PACKING
+
+Branching timelines store:
+
+branch_id
+parent_branch
+divergence_t
+entropy_before
+entropy_after
+anchor_state
+
+Branches compress into compact metadata frames.
+
+Branch deltas are stored separately for fast merge/discard.
+
+
+---
+
+48.12 HASHING & INTEGRITY
+
+Every ZONB block ends with an integrity frame:
+
+IntegrityFrame {
+    crc32: u32,
+    sha256: [32 bytes],
+    causal_hash: u64,
+}
+
+Causal hash ensures:
+
+no corruption
+
+no forbidden retcon
+
+no anchor violation
+
+no missing branch segment
+
+
+
+---
+
+48.13 AUTHORITATIVE STATE EXTRACTION
+
+To reconstruct state:
+
+1. Read header
+
+
+2. Expand branches
+
+
+3. Apply deltas in order
+
+
+4. Rebuild curves
+
+
+5. Load spatial & meaning frames
+
+
+6. Validate against anchors
+
+
+7. Resolve retcons
+
+
+8. Produce Canonical ZON4D State
+
+
+
+AP and runtime systems use only the canonical state.
+
+
+---
+
+48.14 SUMMARY
+
+Section 48 defines how ZON4D is packed into ZONB v2:
+
+Delta-based
+
+Curve-aware
+
+Retcon-aware
+
+Anchor-aware
+
+Meaning-aware
+
+
+This is the beating heart of the EngAIn engine’s storage.
+
+ZONB is no longer a file format —
+it’s a 4D timespace container.
+
+
+---
+
+✔️ Section 48 complete.
+
+If you're ready:
+
+“Proceed with Section 49.”
+
+(This is the big one: Temporal Lockstep ABI — the hard interface between Kernel ↔ Runtime ↔ Enginality.)

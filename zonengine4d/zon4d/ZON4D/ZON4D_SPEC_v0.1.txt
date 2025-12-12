@@ -1,0 +1,949 @@
+Got you. You’re in the van, not on a ladder—this is the window where we carve the stone tablets.
+
+Here’s ZON4D v0.1 – full spec from top to bottom, written so you can literally drop it into docs/ZON4D_SPEC.md when you’re ready.
+
+
+---
+
+ZON4D Specification (Temporal Layer for ZON/ZONB)
+
+Version: 0.1 (Draft)
+Status: Design-Frozen, Impl-Open
+Date: December 1, 2025
+Depends On:
+
+ZW-S_SPEC (Soft ZW)
+
+ZW_H_SPEC (Hard ZW)
+
+ZON_FORMAT (ZONJ / ZONB)
+
+
+
+---
+
+Table of Contents
+
+1. Purpose & Philosophy
+
+
+2. Conceptual Model
+
+
+3. Temporal Eligibility & Schema Flags
+
+
+4. Keyframes & Timeline Structure
+
+
+5. Interpolation Semantics
+
+
+6. ZON4D Data Model (Canonical Form)
+
+
+7. Validation Rules
+
+
+8. ZON4D in ZW-S Syntax
+
+
+9. ZON4D → ZONJ Mapping
+
+
+10. Compression & Simplification
+
+
+11. Playback & Runtime Semantics
+
+
+12. Error Types & Failure Modes
+
+
+13. Integration with ZONB (Binary Layer)
+
+
+14. Worked Examples
+
+
+15. Future Extensions
+
+
+16. Changelog
+
+
+
+
+---
+
+1. Purpose & Philosophy
+
+ZON4D is the temporal extension of ZON/ZONB.
+
+ZON = structured, validated state (space).
+
+ZON4D = structured, validated state as a function of time (space-time).
+
+
+Goals:
+
+Provide a deterministic, replayable timeline for any ZW-H-typed field.
+
+Support interpolation, events, and compression for time-based data.
+
+Integrate cleanly with:
+
+ZW-H schemas (no schema mutation)
+
+ZONJ (JSON-like object)
+
+ZONB (binary packer)
+
+Future AP (Anti-Python) execution
+
+
+
+Non-goals:
+
+ZON4D is not a physics engine.
+
+ZON4D does not define game logic—only how values evolve over time.
+
+
+
+---
+
+2. Conceptual Model
+
+ZON4D introduces time as a first-class index over ZW-H-typed fields.
+
+A temporal field is:
+
+> A mapping from a scalar time domain (usually normalized [0.0, duration]) to values of a particular ZW-H type, with defined interpolation rules.
+
+
+
+Think of it as:
+
+value(t) = f(t, keyframes, interpolation_mode)
+
+Examples of usage:
+
+Character motion: position, rotation, scale
+
+Animation curves: blend shapes, camera FOV, UI fades
+
+World state: door opening over 0.8 seconds
+
+AI/emotion: state changes over time via event-style keyframes
+
+Buff/debuff durations, scripted sequences, cinematic tracks
+
+
+
+---
+
+3. Temporal Eligibility & Schema Flags
+
+Not every field is allowed to be temporal. ZON4D is opt-in at the schema level.
+
+3.1 Schema-Level Temporal Flag
+
+To allow temporal use of a type, the schema must declare:
+
+%type motion
+  {allow_temporal true}
+  {fields [
+    {position {type vec2}}
+    {rotation {type float}}
+  ]}
+
+allow_temporal false (default) → temporal syntax is invalid.
+
+allow_temporal true → fields may be instantiated as ZON4D timelines.
+
+
+3.2 Field-Level Temporal Policy (Optional)
+
+Optionally, schemas may provide more granular flags later (v0.2+).
+For v0.1, all fields of a temporal-allowed type may be used temporally.
+
+
+---
+
+4. Keyframes & Timeline Structure
+
+4.1 Keyframe Definition
+
+A keyframe is a pair:
+
+(time, value)
+
+time is a numeric scalar (float or int) in timeline units (engine-specific; often seconds, normalized 0–1, or ticks).
+
+value is any value compatible with the field’s ZW-H type.
+
+
+4.2 Keyframe Set
+
+A keyframe set is an ordered, non-empty list of keyframes:
+
+K = [ (t0, v0), (t1, v1), ..., (tn, vn) ]
+
+With the following invariants:
+
+ti are strictly increasing: t0 < t1 < ... < tn
+
+Each vi is valid for the ZW-H field type (or coercible under ZW-H rules).
+
+n ≥ 0 (at least one keyframe).
+
+
+4.3 Time Domain
+
+Default: A temporal field’s time domain is [t0, tn], where t0 is first keyframe, tn is last.
+
+Optionally, a block may define:
+
+start (shift of time origin)
+
+duration (explicit length; may differ from tn - t0, but v0.1 recommends equality)
+
+
+
+
+---
+
+5. Interpolation Semantics
+
+Interpolation determines how values between keyframes are computed.
+
+5.1 Interpolation Modes (v0.1)
+
+Supported modes:
+
+1. step
+
+
+2. linear
+
+
+3. cubic
+
+
+4. event
+
+
+
+Each can be specified:
+
+At block level: default for all fields.
+
+At field level: overrides block default.
+
+
+5.1.1 Step
+
+For t between ti and ti+1:
+value(t) = vi
+
+Use for:
+
+integer stats
+
+discrete states (gear, stage, level)
+
+boolean-like semantics
+
+
+
+5.1.2 Linear
+
+For numeric or vector-like values (e.g., float, vec2, vec3, lists of numbers).
+
+Between ti and ti+1, interpolate linearly: value(t) = vi + ((t - ti)/(ti+1 - ti)) * (vi+1 - vi)
+
+Use for:
+
+positions, rotations (modulo wrap rules), scales
+
+simple parameter fades
+
+
+
+5.1.3 Cubic
+
+Smooth curves with continuity on first derivative.
+
+Implementation-defined spline (Catmull-Rom, Hermite, etc.).
+
+Spec requirement: for given keyframes, cubic interpolation must be:
+
+deterministic
+
+monotonic where input is monotonic (no extra overshoots unless explicitly allowed in future)
+
+
+
+Use for:
+
+camera smoothing
+
+high-fidelity motion curves
+
+audio/volume automation
+
+
+5.1.4 Event
+
+No interpolation between values.
+
+The timeline is instead a schedule of discrete events:
+
+At t = ti, value(t) is vi and an event may fire.
+
+For non-keyframe times, value(t) is implementation-defined (often “last known state”).
+
+
+
+Use for:
+
+emotion changes
+
+state machine transitions
+
+scripted triggers
+
+flags flipping at known times
+
+
+
+---
+
+6. ZON4D Data Model (Canonical Form)
+
+Internally (ZONJ/ZONB side), a temporal field is normalized to a canonical structure:
+
+{
+  "mode": "temporal",
+  "interp": "linear",        // or step/cubic/event
+  "keyframes": [
+    [0.0,  [0, 0]],          // t, value
+    [1.0,  [10, 5]]
+  ],
+  "start": 0.0,
+  "duration": 1.0,
+  "playback": "clamp"        // see Section 11
+}
+
+Required fields:
+
+mode: "temporal" (distinguishes from static fields)
+
+keyframes: list of [time, value]
+
+
+Optional fields (v0.1):
+
+interp: defaults to block-level interpolation or a global default
+
+start: default 0.0
+
+duration: default t_last - t_first
+
+playback: defaults to "clamp"
+
+
+
+---
+
+7. Validation Rules
+
+ZON4D validation is an extension of ZW-H validation, not a replacement.
+
+7.1 Preconditions
+
+A field may be temporal iff:
+
+1. Its schema type is temporal-allowed:
+
+Schema has {allow_temporal true} at type level.
+
+
+
+2. The ZW-S input uses temporal syntax (keyframes) instead of a scalar.
+
+
+
+If any of these are violated → temporal_not_allowed.
+
+7.2 Temporal Field Validation Steps
+
+Given a field F with candidate ZW-S temporal data:
+
+1. Parse keyframes from ZW-S syntax into (time, value) pairs.
+
+
+2. Sort by time (t0 < t1 < ... < tn).
+
+
+3. Check duplicates:
+
+If any ti == ti+1 → overlapping_keyframe.
+
+
+
+4. Validate time values:
+
+Must be numeric (float/int).
+
+Must be finite (no NaN/Inf).
+
+
+
+5. Validate values:
+
+Each vi must be valid under ZW-H type for F, including:
+
+Type
+
+Constraints (min, max, regex, etc.)
+
+Enum membership
+
+
+
+
+6. Validate interpolation mode:
+
+If field-level interp provided:
+
+Must be one of: step, linear, cubic, event.
+
+Must be compatible with type (e.g., linear on floats/vectors).
+
+
+Else if block-level interp provided:
+
+Same checks.
+
+
+Else use global default: step for non-numeric, linear for numeric.
+
+
+
+7. Validate playback mode (if provided):
+
+Must be one of: clamp, loop, pingpong.
+
+
+
+8. Normalize:
+
+Convert to canonical ZON4D structure (Section 6).
+
+
+
+
+If any step fails → ZON4D field is invalid, spec-compliant validator must report a structured error (Section 12).
+
+
+---
+
+8. ZON4D in ZW-S Syntax
+
+ZON4D is authored in ZW-S using a compact, human/LLM-friendly syntax.
+
+8.1 Long Form (Explicit)
+
+{position
+  0.0: [0 0]
+  0.5: [2 1]
+  1.0: [4 2]
+}
+
+Each line: TIME: VALUE
+
+Whitespace flexible
+
+VALUE is any ZW-S scalar/list/block matching ZW-H type.
+
+
+8.2 Compact Form
+
+Optionally, keyframes may be written on a single line:
+
+{rotation 0:0 1:360}
+{alpha 0:0.0 0.5:1.0 1.0:0.0}
+
+Validator must:
+
+Tokenize time:value pairs.
+
+Allow arbitrary whitespace between them.
+
+
+8.3 Mixed with Static Fields
+
+In a single block:
+
+{motion
+  {id "RUN_FORWARD"}           ; static
+  {position                    ; temporal
+    0: [0 0]
+    1: [10 5]
+  }
+  {rotation
+    0: 0
+    1: 360
+  }
+}
+
+Static fields compatible with ZW-H are allowed alongside temporal fields.
+
+A field is either static or temporal in a given instance, not both.
+
+
+
+---
+
+9. ZON4D → ZONJ Mapping
+
+After validation, the ZW-S temporal syntax must be mapped to its canonical ZONJ form.
+
+9.1 Single Field Mapping
+
+ZW-S:
+
+{position
+  0: [0 0]
+  1: [10 5]
+}
+
+ZONJ:
+
+"position": {
+  "mode": "temporal",
+  "interp": "linear",
+  "keyframes": [
+    [0.0, [0, 0]],
+    [1.0, [10, 5]]
+  ],
+  "start": 0.0,
+  "duration": 1.0,
+  "playback": "clamp"
+}
+
+9.2 Block-Level Mapping
+
+ZW-S:
+
+{motion
+  {position 0:[0 0] 1:[10 5]}
+  {rotation 0:0 1:360}
+}
+
+ZONJ:
+
+"motion": {
+  "position": { ... temporal object ... },
+  "rotation": { ... temporal object ... }
+}
+
+All non-temporal fields in the same block map as standard ZON fields.
+
+
+
+---
+
+10. Compression & Simplification
+
+ZON4D gains efficiency by removing redundant keyframes and compactly encoding sequences.
+
+All compression is lossless with respect to interpolated values at keyframe times.
+
+10.1 Keyframe Deduplication
+
+If interpolation between (ti, vi) and (ti+1, vi+1) does not require both points to produce the same visible result (under chosen interpolation), duplicates can be dropped.
+
+For step: consecutive identical values can be compressed to a single keyframe.
+
+For linear/cubic: if vi lies exactly on the interpolation between vi-1 and vi+1, (ti, vi) can be dropped.
+
+
+10.2 Early Cutoff
+
+If a field stops changing after time t_stop, and runtime semantics assume clamping, keyframes beyond t_stop can be safely removed, provided they are identical to the last effective value.
+
+10.3 Delta Encoding (Binary-Level)
+
+For numeric or vector values, binary encoding may:
+
+Store first value absolute.
+
+Store subsequent values as deltas (e.g., dv = vi - vi-1).
+
+
+Spec requirement: deltas must reconstruct original values exactly.
+
+10.4 Curve Simplification
+
+Validator or offline tools may:
+
+Remove intermediate points lying on a straight line or smooth curve within tolerance.
+
+v0.1 spec: tolerance must default to zero (purely lossless) unless explicitly configured.
+
+
+
+---
+
+11. Playback & Runtime Semantics
+
+Runtime sees ZON4D as an evaluatable function of time.
+
+11.1 Playback Modes
+
+Playback mode is per temporal field (or per block default):
+
+clamp
+
+For t < start: use value at start.
+
+For t > start + duration: use value at last keyframe.
+
+
+loop
+
+Wrap time into [start, start + duration) via modulo.
+
+
+pingpong
+
+Time moves forward to start + duration, then reverses, repeating.
+
+
+
+11.2 Evaluation Contract
+
+Given:
+
+A temporal object T with start, duration, keyframes, interp, playback.
+
+A time t_world (global or local timeline).
+
+
+Runtime steps:
+
+1. Convert t_world into local time t_local using playback rules.
+
+
+2. Find bracketing keyframes (ti, vi) and (ti+1, vi+1) such that ti ≤ t_local ≤ ti+1.
+
+
+3. If t_local exactly equals a keyframe time:
+
+Return vi.
+
+If interp == "event", fire associated event.
+
+
+
+4. Else compute:
+
+step: return vi.
+
+linear: linear interpolation.
+
+cubic: cubic interpolation.
+
+event: return last known state; no new event.
+
+
+
+
+11.3 Determinism Requirement
+
+For any given:
+
+ZON4D object
+
+time t
+
+playback mode
+
+
+the value produced by the runtime must be pure and deterministic (no randomness, no external context)
+
+
+---
+
+12. Error Types & Failure Modes
+
+ZON4D adds new error categories on top of ZW-H’s.
+
+12.1 Temporal Errors
+
+Error Code	Description
+
+temporal_not_allowed	Schema does not permit temporal fields
+bad_timestamp	Time is non-numeric or NaN/Inf
+timestamp_order	Time sequence is not strictly increasing
+overlapping_keyframe	Duplicate timestamp encountered
+invalid_interp	Unknown or incompatible interpolation mode
+invalid_playback	Unknown playback mode
+mixed_value_types	Values have inconsistent types
+invalid_temporal_value	Value invalid under ZW-H type/constraints
+
+
+12.2 Reporting Form (Spec-Level)
+
+Errors should be reported with:
+
+{
+  "error": "validation_error",
+  "type": "temporal_not_allowed",
+  "block": "motion",
+  "field": "position",
+  "details": {
+    "reason": "Schema 'motion' did not opt-in to allow_temporal."
+  }
+}
+
+Validator may accumulate multiple errors if configured to do so (same model as ZW-H).
+
+
+---
+
+13. Integration with ZONB (Binary Layer)
+
+ZON4D must pack into ZONB without breaking existing ZONB semantics.
+
+13.1 Binary Representation Sketch (v0.1)
+
+Each temporal field is stored as:
+
+FIELD_HEADER(
+  FLAG_TEMPORAL,
+  INTERP_MODE,
+  PLAYBACK_MODE,
+  KEYFRAME_COUNT
+)
+
+KEYFRAME_0(
+  TIME_0,
+  VALUE_0
+)
+
+...
+
+KEYFRAME_N(
+  TIME_N,
+  VALUE_N
+)
+
+Where:
+
+FLAG_TEMPORAL marks that this is a temporal field, not a static scalar.
+
+INTERP_MODE and PLAYBACK_MODE use small integer codes.
+
+TIME_i is encoded as a float (or normalized integer ticks).
+
+VALUE_i uses existing ZONB encoding for that type.
+
+
+Exact bit layout is left to ZON_FORMAT.md and ZONB packer/unpacker.
+
+
+---
+
+14. Worked Examples
+
+14.1 Character Motion
+
+Schema:
+
+%type motion
+  {allow_temporal true}
+  {fields [
+    {position {type vec2}}
+    {rotation {type float}}
+  ]}
+
+ZW-S:
+
+{motion
+  {position
+    0: [0 0]
+    1: [10 5]
+  }
+  {rotation
+    0: 0
+    1: 360
+  }
+}
+
+Canonical ZONJ:
+
+{
+  "motion": {
+    "position": {
+      "mode": "temporal",
+      "interp": "linear",
+      "keyframes": [
+        [0.0, [0, 0]],
+        [1.0, [10, 5]]
+      ],
+      "start": 0.0,
+      "duration": 1.0,
+      "playback": "clamp"
+    },
+    "rotation": {
+      "mode": "temporal",
+      "interp": "linear",
+      "keyframes": [
+        [0.0, 0],
+        [1.0, 360]
+      ],
+      "start": 0.0,
+      "duration": 1.0,
+      "playback": "clamp"
+    }
+  }
+}
+
+
+---
+
+14.2 Emotion Timeline (Event Mode)
+
+Schema:
+
+%type emotion_track
+  {allow_temporal true}
+  {fields [
+    {emotion {type enum values [idle angry neutral afraid]}}
+  ]}
+
+ZW-S:
+
+{emotion_track
+  {emotion
+    0: idle
+    1: angry
+    2.5: neutral
+  }
+}
+
+ZONJ:
+
+{
+  "emotion_track": {
+    "emotion": {
+      "mode": "temporal",
+      "interp": "event",
+      "keyframes": [
+        [0.0, "idle"],
+        [1.0, "angry"],
+        [2.5, "neutral"]
+      ],
+      "start": 0.0,
+      "duration": 2.5,
+      "playback": "clamp"
+    }
+  }
+}
+
+
+---
+
+14.3 Mixed Static + Temporal
+
+Schema:
+
+%type door_anim
+  {allow_temporal true}
+  {fields [
+    {id {type string required}}
+    {open_fraction {type float}}
+    {sound_id {type string}}
+  ]}
+
+ZW-S:
+
+{door_anim
+  {id "GATE_01"}
+  {open_fraction
+    0: 0.0
+    0.8: 1.0
+  }
+  {sound_id "creak_open_01"}
+}
+
+
+---
+
+15. Future Extensions
+
+The following are explicitly reserved for ZON4D v0.2+:
+
+Per-field allow_temporal flags.
+
+Vector and quaternion-specific interpolation rules (e.g., slerp for rotations).
+
+Non-scalar time domains (e.g., branching timelines, conditional time).
+
+Multi-track composition and blending (layers of ZON4D on the same target).
+
+AP-integrated temporal queries (e.g., “at time t, if value crosses X, trigger rule”).
+
+
+For v0.1, these are out of scope and must not be relied on.
+
+
+---
+
+16. Changelog
+
+v0.1 (Draft, 2025-12-01)
+
+Defined ZON4D as a temporal extension to ZON/ZONB.
+
+Specified:
+
+Temporal eligibility via allow_temporal.
+
+Keyframe structure and invariants.
+
+Interpolation modes: step, linear, cubic, event.
+
+Canonical ZON4D data model (mode, interp, keyframes, start, duration, playback).
+
+Validation rules and temporal error types.
+
+ZW-S authoring syntax for temporal fields.
+
+Mapping to ZONJ and compatibility with ZONB.
+
+Playback semantics and determinism requirements.
+
+Example use cases (motion, emotion, door animation).
+
+
+
+Status:
+
+Design Frozen for v0.1.
+
+Implementation details (packers, runtime helpers, Godot bindings) are allowed to evolve, but must conform to this spec.
+
+
+
+---
+
+If you want, next step I can:
+
+Turn this into checklist form for the validator/runtime (“things we must implement to be ZON4D-compliant”), or
+
+Draft the Godot-facing runtime contract (what AP / ZWRuntime can assume when they request value_at_time(t) from a ZON4D field).

@@ -1,0 +1,202 @@
+Locked.
+ZW-S is done.
+Frozen.
+Set in stone.
+
+Now we move.
+
+You asked what’s next — and the answer is:
+ZW-H Spec v0.1 (Hard ZW)
+because without it, you cannot build:
+
+the compiler
+
+ZON4D
+
+AP
+
+or runtime contracts
+
+
+Every downstream system requires a hard, typed, deterministic schema language to attach itself to.
+
+So here’s what we do:
+
+
+---
+
+✅ Next Step: Generate ZW-H Spec v0.1 (Hard ZW Schema Language)
+
+This is the schema definition language that turns soft/semantic ZW into deterministic, validated, engine-ready ZW-H.
+
+ZW-H = ZW + Schema Enforcement + Types + Validation
+This is the “hard mode” that removes ambiguity.
+
+
+---
+
+📘 Outline for ZW-H Spec v0.1
+
+Here is what I will generate when you confirm “go”:
+
+
+---
+
+1. Schema Blocks
+
+Schemas defined using reserved %type or %schema prefix:
+
+%schema npc
+  {fields [
+    {id {type string required}}
+    {level {type int default 1}}
+    {health {type int required}}
+    {hostile {type bool default false}}
+  ]}
+
+
+---
+
+2. Primitive Types
+
+ZW-H supports:
+
+string
+
+int
+
+float
+
+bool
+
+enum
+
+list<T>
+
+block<T>
+
+any (last resort)
+
+
+
+---
+
+3. Validation Rules
+
+Missing required → error
+
+Type mismatch → error
+
+Unknown fields → warning or error (schema chooses)
+
+Default used when field missing & default defined
+
+Enum must match declared values
+
+
+
+---
+
+4. Compiler Behavior (ZW-S → ZW-H)
+
+For each block:
+
+Identify type (first key)
+
+Load schema for that type
+
+Validate each field
+
+Apply defaults
+
+Coerce types if safe (e.g., "5" → 5)
+
+Output validated ZONJ (ZW-H JSON)
+
+
+
+---
+
+5. Error Model
+
+Clear, AP-compatible error reporting:
+
+{
+  "error": "validation_error",
+  "block": "npc",
+  "field": "health",
+  "expected": "int",
+  "got": "string"
+}
+
+
+---
+
+6. Versioning
+
+ZW-H is versioned separately from ZW-S to allow additions without breaking soft-layer compatibility.
+
+
+---
+
+7. Examples
+
+Validate a full NPC, Item, Dialogue, Animation, Sound, TTS, and GameObject schema.
+
+
+---
+
+🧠 YOU TELL ME THE PACE
+
+You can choose one of three modes:
+
+
+---
+
+Mode A — FAST (5 minutes)
+
+I dump the full ZW-H Spec v0.1 in one message.
+
+
+---
+
+Mode B — CONTROLLED (step-by-step)
+
+We build:
+
+1. Types
+
+
+2. Fields
+
+
+3. Rules
+
+
+4. Validator
+
+
+5. Final spec
+
+
+
+
+---
+
+Mode C — ARCHITECTURE-FIRST
+
+I first design the compiler architecture (AST → SchemaResolver → Validator → ZWH Output → ZONB Encoder).
+Then we write the spec to match it.
+
+
+---
+
+🔥 READY TO LOCK IN THE NEXT LAYER?
+
+Just answer:
+
+A (Fast)
+B (Step-by-Step)
+C (Architecture-First)
+
+Which path you want?

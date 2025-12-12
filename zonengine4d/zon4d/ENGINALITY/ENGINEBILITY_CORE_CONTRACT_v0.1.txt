@@ -1,0 +1,208 @@
+# ENGINEBILITY CORE CONTRACT v0.1
+
+**Status:** Draft → freezes when Runtime Loop v0.1 compiles
+**Domain:** EngAIn / ZON4D / AP
+**Role:** Defines what the Engine is obligated, permitted, and forbidden to do when executing time.
+
+This sits **above** the Runtime Loop and **below** authored content.
+The Runtime Loop exists only to *enforce this contract at kernel clock*.
+
+---
+
+# 1. OBJECTS
+
+1.1 **Snapshot** — Canonical ZON4D world-state at a given temporal index.
+1.2 **Delta** — Typed, anchored proposed mutation to a Snapshot.
+1.3 **Timeline** — Ordered sequence of Snapshots + applied Deltas.
+1.4 **Anchor** — Hash-verified known-good reference (soft / hard / immutable).
+1.5 **AP Rule Set** — Active constraints defining validity.
+1.6 **Engine Tick** — Atomic cycle: ingest → validate → commit → expose.
+
+All obligations apply **per Tick** and **per Timeline**.
+
+---
+
+# 2. MUST GUARANTEE
+
+## G1 — Deterministic Temporal Mutation
+
+Given identical:
+
+* base Snapshot,
+* ordered Delta set,
+* AP Rule Set,
+* Kernel configuration,
+
+→ Engine MUST produce the same resulting Snapshot + meta-log.
+
+No hidden randomness.
+Any nondeterminism must be explicit, seeded, logged, and part of the Delta.
+
+---
+
+## G2 — Reversible Edits
+
+Every applied Delta/bundle must contain enough information to:
+
+* compute an inverse Delta, or
+* revert to an anchored Snapshot unambiguously.
+
+Minimum log record:
+
+* target Snapshot ID
+* affected fields/entities
+* previous values (or pointer to anchor)
+* causality chain (originator → source timestamp)
+
+If reversibility is uncertain → new Snapshot CANNOT be canonical.
+
+---
+
+## G3 — AP Compliance
+
+No Snapshot may commit if AP rules reject it.
+
+AP verdicts:
+
+* **ACCEPT** → commit
+* **REJECT** → discard, alert
+* **ARBITRATE** → AP resolves conflict; only resolved output may commit
+
+No bypass. No forced commits. Ever.
+
+---
+
+## G4 — Zero Ambiguity: State vs History vs Memory
+
+Engine must keep the three domains separate:
+
+* **State** — truth now
+* **History** — how we got here
+* **Memory** — narrative/agent summaries & interpretation
+
+All reads must declare their domain (`READ_STATE | READ_HISTORY | READ_MEMORY`).
+No silent coercion.
+
+---
+
+# 3. MUST PROVIDE
+
+## P1 — Real-Time Delta Ingestion
+
+Engine must expose:
+
+* **ingest(delta)**
+* **inspect(queue)**
+* **flush(next_tick)**
+
+No Delta can sit unprocessed indefinitely.
+
+---
+
+## P2 — Concurrency Support
+
+Multiple mutation sources in same Tick must be supported.
+
+Conflicts:
+If two Deltas target same canonical field during same Tick → Engine MUST:
+
+* apply deterministic merge policy **or**
+* declare conflict → AP arbitration
+
+Never "last-write-wins by accident."
+
+---
+
+## P3 — Temporal Fences
+
+Engine must support explicit time fences:
+
+* before fence: mutability depends on anchor type
+* after fence: Deltas apply strictly forward
+* retro edits require retcon protocol (branch/merge)
+
+API: define_fence(), query_fence(), retcon().
+
+---
+
+## P4 — Cross-Domain Hydration
+
+One canonical Snapshot must hydrate all domains:
+
+* narrative
+* spatial
+* audio/visual
+* AP rule domain
+
+If any domain fails hydration → Engine must:
+
+* alert
+* avoid emitting partial inconsistent state
+* rollback or degrade per policy
+
+---
+
+# 4. MUST REJECT
+
+## R1 — Non-Canonical Writes
+
+Reject any Delta that:
+
+* targets unknown/deprecated schema field
+* violates ZON4D typing
+* carries invalid timestamp or temporal index
+
+---
+
+## R2 — Unanchored Mutations
+
+Any mutation lacking:
+
+* valid base Snapshot ID,
+* or whose base has been superseded,
+
+→ must be rejected or forced into a branch.
+Engine may auto-branch, but MUST NOT pretend stale Deltas landed on the current canonical state.
+
+---
+
+## R3 — AP Contradictions Without Arbitration
+
+If AP rules conflict, Engine must escalate.
+No commit without clear arbitration path.
+
+---
+
+## R4 — Ambiguous Temporal Scope
+
+Deltas missing clear time behavior (when/for how long) must be rejected or normalized by explicit contract defaults.
+
+---
+
+# 5. BREACH HANDLING
+
+If Engine detects internal violation of any MUST GUARANTEE or MUST REJECT clause:
+
+* do not commit
+* emit **CRITICAL** alert to Kernel/ZWAlerts
+* persist repro data (Snapshot, Deltas, AP verdicts)
+* revert to last anchored Snapshot if possible
+
+Silent failures are themselves a breach.
+
+---
+
+# 6. RELATION TO RUNTIME LOOP
+
+Runtime Loop = implementation detail.
+Contract = law.
+
+Loop definition:
+
+> "Collect Deltas → apply under Enginebility → run rendering/performance passes → schedule next Tick."
+
+If a loop cannot uphold this contract → it is **not Enginal-compliant**, regardless of output fidelity.
+
+---
+
+# Contract Ends

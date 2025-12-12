@@ -1,0 +1,219 @@
+Copy that.
+We lock into Mode B — step-by-step, and we start with Types.
+No drift. No hand-waving. No skipping ahead.
+One layer at a time, each airtight.
+
+Below is the final, frozen ZW-H “Types” section, clean, precise, repo-ready.
+This will become Section 1 of docs/ZW_H_SPEC.md.
+
+
+---
+
+✅ ZW-H SPEC v0.1 — SECTION 1: TYPES (FINAL)
+
+(You can paste this straight into the spec. No editing required.)
+
+# 1. Types (ZW-H)
+
+ZW-H is a **typed**, **validated**, and **deterministic** layer of the ZW language.  
+Types define the permissible shapes of data, the constraints applied to values,  
+and the rules the ZW-H compiler and validator enforce.
+
+ZW-H types are divided into:
+- **Primitive types**
+- **Complex types**
+- **Constrained types**
+- **Meta-types** (minimal use; for prototyping only)
+
+---
+
+## 1.1 Primitive Types
+
+| Type     | Description                                        | Examples                            |
+|----------|----------------------------------------------------|--------------------------------------|
+| `string` | UTF-8 text sequence                                | `"hello"`, `"VAIRIS"`, `"..."`, `""` |
+| `int`    | Signed 64-bit integer                              | `0`, `42`, `-7`                      |
+| `float`  | IEEE-754 floating-point number                     | `3.14`, `-0.5`, `.75`                |
+| `bool`   | Boolean                                            | `true`, `false`                      |
+| `enum`   | Enumerated symbol from a fixed, declared set       | `fear`, `joy`, `neutral`             |
+
+**Notes:**  
+- ZW-H rejects NaN or Inf.  
+- Strings do **not** require quotes in ZW-S; but ZW-H stores them as JSON strings.  
+
+---
+
+## 1.2 Complex Types
+
+### `list<T>`
+An ordered list of homogeneous items of type **T**.
+
+Examples:
+```zw
+{tags {type list<string>}}
+{samples {type list<int>}}
+{frames {type list<block<frame>>}}
+
+block<T>
+
+A nested, typed block (sub-schema).
+Used for structured objects inside objects.
+
+Example:
+
+{inventory {type list<block<item>>}}
+
+any
+
+Accepts any valid ZW-H value.
+
+Use for prototyping only.
+
+Not recommended for production schemas.
+
+
+
+---
+
+1.3 Constrained Types
+
+Primitive and complex types may include constraints.
+
+Supported Constraints
+
+Constraint	Applies To	Description	Example
+
+min	int, float	Lower bound inclusive	int min 0
+max	int, float	Upper bound inclusive	int max 100
+regex	string	Regular expression pattern (PCRE)	string regex "^[A-Z_]+$"
+values	enum	Allowed symbolic values	enum values [fear joy hope]
+length	list, string	Exact length	list<string> length 3
+minlen	list, string	Minimum length	string minlen 1
+maxlen	list, string	Maximum length	list<int> maxlen 10
+
+
+
+---
+
+1.4 Default Handling
+
+Types may specify default values:
+
+{health {type int default 100}}
+{hostile {type bool default false}}
+{emotion {type enum values [fear joy calm] default calm}}
+
+If required is present, default is ignored and missing field → error.
+
+
+---
+
+1.5 Examples of Full Type Declarations
+
+Example 1: Health Value
+
+%type health
+  {type int min 0 max 100}
+
+Example 2: Emotion Enum
+
+%type emotion
+  {type enum values [fear joy anger wonder neutral]}
+
+Example 3: Inventory (complex)
+
+%type inventory
+  {type list<block<item>> default []}
+
+Example 4: Curve (for ZON4D integration)
+
+%type curve
+  {type list<float> minlen 2}
+
+
+---
+
+1.6 Type Resolution Rules
+
+1. Primitive types resolve first.
+
+
+2. Enum types resolve only if the value is one of the declared enum values.
+
+
+3. Complex types resolve recursively.
+
+
+4. A type error anywhere in a block invalidates the whole block.
+
+
+5. Type coercion rules (compiler may auto-fix):
+
+"5" → 5 (string to int)
+
+"3.14" → 3.14 (string to float)
+
+"true" / "false" → bool
+
+Other coercions → error
+
+
+
+6. Uncoercible values raise hard errors.
+
+
+
+
+---
+
+1.7 Reserved Meta-Types
+
+These are allowed but discouraged:
+
+Type	Use Case
+
+any	Prototyping, experimental schemas
+raw	Direct JSON injection (compiler internal)
+
+
+
+---
+
+1.8 Summary
+
+ZW-H Types provide:
+
+Deterministic structure
+
+Enforced validation
+
+Strict compatibility guarantees
+
+Schema-driven interpretation
+
+Backbone for ZON4D, AP, and runtime execution
+
+
+This section is foundational.
+All Fields, Rules, Validator logic, and Compiler semantics depend on it.
+
+---
+
+# 🚦 **Ready for Step 2: Fields?**
+
+If you say **“Proceed”**, I will deliver:
+
+### **ZW-H SPEC v0.1 — SECTION 2: FIELDS**
+Including:
+- Field grammar  
+- Required vs optional  
+- Defaults  
+- Unknown field behavior  
+- Block types vs inline types  
+- Nested field semantics  
+- Field-level constraints  
+- Real-world examples (NPC, Item, Dialogue, Animation, TTS)  
+
+Just say:
+
+**Proceed**

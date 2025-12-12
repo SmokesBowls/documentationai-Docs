@@ -1,0 +1,353 @@
+🔥 SECTION 33 — SNAPSHOT DIFF & DRIFT METRICS
+Status: Design-Frozen
+Purpose: Enable AP, BalancerBot, Simulator, and Engine Logic to measure change, detect anomalies, predict outcomes, and anchor time-based decisions using a fully deterministic, schema-aligned diff system.
+
+This is where EngAIn finally gets numerical truth about how the world evolves.
+
+No vibes.
+No guesses.
+No hidden assumptions.
+
+Just pure math on canonical snapshots.
+
+
+---
+
+33. SNAPSHOT DIFF & DRIFT METRICS
+
+33.0 Purpose
+
+Two snapshots of the same entity at two different times:
+
+Snapshot A (t₀)
+Snapshot B (t₁)
+
+…must be comparable in a precise, deterministic, schema-aware way.
+
+Uses include:
+
+Detecting state change for AP rules
+
+Event triggers based on threshold deltas
+
+Temporal sanity checks (“did this character teleport?”)
+
+Drift monitoring (“is this animation diverging from expected trajectory?”)
+
+Predictive Sandbox comparisons
+
+ZON4D regression testing
+
+Multiplayer state sync verification (future-proofing)
+
+Debug UI deltas in ZWInspector 2.0
+
+
+So we create a structured diff protocol.
+
+
+---
+
+33.1 Key Definitions
+
+Snapshot
+
+A fully resolved, schema-validated object returned by the Snapshot Provider (Sec 25).
+
+Field Delta
+
+The difference between the same field in two snapshots.
+
+Entity Drift
+
+A normalized measure of overall change across all fields, optionally weighted by schema metadata.
+
+Diff Package
+
+A deterministic structured diff:
+
+{
+  "entity_id": "npc_001",
+  "t0": 12.0,
+  "t1": 12.1,
+  "deltas": { ... },
+  "drift_score": 0.284
+}
+
+
+---
+
+33.2 Canonical Diff Protocol
+
+We define:
+
+DIFF(A, B) → DiffPackage
+
+For same entity, two snapshots, validated.
+
+33.2.1 Field-by-field rules
+
+For each field defined in ZW-H schema:
+
+
+---
+
+(A) Primitive Fields
+
+int
+
+delta = B - A    (signed int64)
+
+float
+
+delta = B - A    (float32)
+
+bool
+
+delta = (A == B ? 0 : 1)
+
+(Because bool changes are binary events.)
+
+string / enum
+
+delta = (A == B ? 0 : 1)
+value_change = { old: A, new: B }   ; included only if delta=1
+
+We do not “diff” string contents — AP is not a text engine.
+
+
+---
+
+(B) Lists / Arrays
+
+Lists must be the same length OR schema must define list-diff mode.
+
+Two modes:
+
+Mode 1 — fixed-size lists (e.g., vec3, emotion RGB)
+
+Element-wise diff:
+
+delta[i] = DIFF(a[i], b[i])
+
+Mode 2 — variable-length lists (e.g., inventory)
+
+We enforce:
+
+delta = {
+  removed: items present in A not in B
+  added: items present in B not in A
+  persistent: [ element-wise-diff for items with same identity ]
+}
+
+Identity = schema-defined (e.g., item_id).
+
+
+---
+
+(C) Objects / Structs
+
+Recurse:
+
+delta[field] = DIFF(A.field, B.field)
+
+
+---
+
+33.3 Drift Metrics
+
+Once per-field deltas are computed, we compute an overall drift score.
+
+General Formula
+
+drift_score = Σ over fields ( weight[field] * normalized_delta[field] )
+
+Where:
+
+weight[field] comes from schema (default = 1.0)
+
+normalized_delta[field] converts any delta into range [0, 1]
+
+
+
+---
+
+33.4 Normalization Rules
+
+33.4.1 int / float normalization
+
+Use schema-defined ranges when available:
+
+If schema specifies:
+
+min X
+max Y
+
+then:
+
+normalized = abs(delta) / (Y - X)
+clamp to [0,1]
+
+If schema has no bounds:
+
+normalized = tanh(abs(delta) * SCALE)
+
+Default:
+
+SCALE = 0.01
+
+This prevents unbounded drift explosions.
+
+
+---
+
+33.4.2 bool normalization
+
+normalized = delta   ; 0 or 1
+
+
+---
+
+33.4.3 string / enum normalization
+
+normalized = delta   ; 0 or 1
+
+
+---
+
+33.4.4 list/array normalization
+
+Case A — numeric lists:
+
+normalized = average(normalized_delta[i])
+
+Case B — inventories:
+
+normalized = (added_count + removed_count) / max(len(A),1)
+
+
+---
+
+33.4.5 objects/structs normalization
+
+normalized = average(child_norms)
+
+
+---
+
+33.5 Drift Thresholds & Flags
+
+Include in diff package:
+
+{
+  "drift_score": 0.284,
+  "drift_flags": {
+    "teleport": true,
+    "emotion_spike": false,
+    "schema_violation": false
+  }
+}
+
+Built-in flags:
+
+teleport → position delta > schema.max_speed * dt
+
+emotion_spike → emotional intensity delta > threshold
+
+identity_change → string/enum diff on identity fields
+
+continuity_gap → snapshot missing intermediate syncpoints
+
+derivative_discontinuity → derivative jumps > allowed slope
+
+
+These are optional but recommended.
+
+
+---
+
+33.6 DiffPackage Canonical Structure
+
+{
+  "entity_id": "string",
+  "t0": "float",
+  "t1": "float",
+  "deltas": {
+    "<field_name>": {
+      "raw": <raw delta>,
+      "normalized": <normalized delta>,
+      "child": { ... }    // if composite
+    }
+  },
+  "drift_score": "float",
+  "drift_flags": {
+    "teleport": "bool",
+    ...
+  }
+}
+
+All keys sorted lexicographically (Section 32 compliance).
+
+
+---
+
+33.7 Example
+
+Entity snapshots:
+
+t=0.0
+
+{ hp: 50, pos: [0,0], emotion: "neutral" }
+
+t=0.1
+
+{ hp: 44, pos: [0.5, 0], emotion: "anger" }
+
+Deltas:
+
+hp: -6
+
+pos: [0.5, 0]
+
+emotion: changed → 1
+
+
+Normalized (example bounds):
+
+hp: | -6 | / 100 → 0.06
+
+pos: average([0.5/10, 0/10]) → 0.025
+
+emotion: 1
+
+
+drift_score (weights = 1):
+
+avg([0.06, 0.025, 1]) = ~0.361
+
+
+---
+
+33.8 Why This Matters
+
+This section makes:
+
+AP rules precise (“emotion drift > 0.6 → escalate dialogue”)
+
+ZON4D continuity testing robust
+
+Syncpoint validation forensic-level
+
+Prediction loops stable
+
+Replay-determinism ironclad
+
+Inter-agent negotiation equal across engines
+
+
+This is one of the most structurally important sections in the entire stack.
+
+
+---
+
+Ready for 34, or do you want a micro-spec on drift thresholds, emotion-specific drift profiles, or prediction window integration before jumping ahead?

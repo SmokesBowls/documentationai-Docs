@@ -1,0 +1,466 @@
+20 — AP Hooks on ZON4D (Behavior Layer Integration)
+
+This is the moment the whole engine “comes alive.”
+No implementation. Pure spec.
+This section defines how AP (Anti-Python) reads ZON4D’s curves, events, and scenes — and turns them into behavior, decision-making, and world logic.
+
+
+---
+
+20.0 Purpose
+
+ZON4D describes what changes over time.
+AP describes what to DO when things change.
+
+This section establishes the formal contract between the 4D motion layer and the behavior engine:
+
+Rules trigger on temporal conditions.
+
+Rules read curve values, threshold crossings, event calls, intervals, scene boundaries, and entity state.
+
+AP executes actions (state changes, signals, commands) driven entirely by pure declarative ZW/ZON data.
+
+
+AP does not do motion, blending, or DSP.
+AP observes and reacts — like an event horizon over spacetime.
+
+
+---
+
+20.1 AP Rule Types (Top-Level)
+
+AP rules attach at three scopes:
+
+A. Frame-Based Rules
+
+Triggered every evaluation step (per frame/tick):
+
+> “If player distance < 3.0, raise alert level.”
+
+
+
+B. Event-Based Rules
+
+Triggered when ZON4D signals an event:
+
+> “On door_impact_peak, shake camera.”
+
+
+
+C. Curve-Based Rules
+
+Triggered when curve values change:
+
+> “When emotion.anger crosses above 0.7, switch dialogue.”
+
+
+
+D. Interval Rules
+
+Triggered when time enters/exits an interval:
+
+> “During 1.2 ≤ t ≤ 2.0, flash lights.”
+
+
+
+E. Transition Rules
+
+Triggered when a scene ends, track ends, or motion completes.
+
+
+---
+
+20.2 AP Condition Schema
+
+%type ap_condition
+  {fields [
+    {type {type enum values [
+              event
+              curve_gt
+              curve_lt
+              curve_cross_up
+              curve_cross_down
+              interval
+              scene_start
+              scene_end
+              track_start
+              track_end
+              time_equals
+              time_after
+              time_before
+            ] required}}
+
+    {path     {type string optional}}  ; "entity.guard.emotion.anger"
+    {value    {type float optional}}   ; threshold
+    {t0       {type float optional}}   ; interval start
+    {t1       {type float optional}}   ; interval end
+    {event_id {type string optional}}  ; "door_impact_peak"
+  ]}
+
+
+---
+
+20.3 AP Action Schema
+
+AP does not define “how to code”.
+AP defines semantic verbs.
+
+%type ap_action
+  {fields [
+    {type {type enum values [
+              signal
+              set_flag
+              inc_flag
+              dec_flag
+              set_emotion
+              start_scene
+              stop_scene
+              play_track
+              stop_track
+              branch_dialogue
+              spawn
+              despawn
+              camera_shake
+              log
+            ] required}}
+
+    {arg0 {type any optional}}
+    {arg1 {type any optional}}
+    {arg2 {type any optional}}
+  ]}
+
+
+---
+
+20.4 AP Rule Block
+
+%type ap_rule
+  {fields [
+    {id        {type string required}}
+    {when      {type block<ap_condition> required}}
+    {then      {type list<block<ap_action>> required}}
+    {priority  {type int default 0}}
+    {cooldown  {type float default 0.0}}
+    {debounce  {type float default 0.0}}
+  ]}
+
+Why priority/cooldown?
+
+Because in a 4D world:
+
+You don’t want a threshold crossing every frame.
+
+You don’t want scene transitions racing.
+
+You may want some rules to fire before others.
+
+
+
+---
+
+20.5 Curve Conditions (Formal Definition)
+
+ZON4D gives you curves:
+
+emotion.anger : curve1
+jaw_angle : curve1
+position : curve3
+light_intensity : curve1
+
+AP can test them in 6 strict ways:
+
+
+---
+
+20.5.1 curve_gt (greater than)
+
+{when {type curve_gt path "guard.emotion.anger" value 0.7}}
+
+Fires every frame where curve(t) > 0.7.
+
+
+---
+
+20.5.2 curve_lt (less than)
+
+{when {type curve_lt path "torch.light_intensity" value 0.2}}
+
+
+---
+
+20.5.3 curve_cross_up
+
+Fires once when curve value moves from ≤ X to > X.
+
+{when {type curve_cross_up path "guard.emotion.anger" value 0.7}}
+
+This is how you do:
+
+“Guard snaps into rage”
+
+“Heartbeat spikes”
+
+“Light turns on”
+
+
+
+---
+
+20.5.4 curve_cross_down
+
+Inverse.
+
+
+---
+
+20.5.5 interval
+
+{when {type interval t0 1.2 t1 2.0}}
+
+Rules can fire:
+
+on enter (t crosses 1.2),
+
+on exit (t crosses 2.0),
+
+or continuous (for the interval duration).
+
+
+Spec defines only the primitive.
+Engine/runtime chooses attach mode.
+(We can formalize attach mode in Section 21 if needed.)
+
+
+---
+
+20.5.6 time_before / time_after / time_equals
+
+Pure temporal checks.
+Useful for forcing actions to occur at specific beats in a scene.
+
+
+---
+
+20.6 Event Conditions (From ZON4D)
+
+ZON4D provides temporal events:
+
+audio events
+
+motion events
+
+facial events
+
+scripted markers
+
+
+AP listens to them like this:
+
+{when
+  {type event event_id "door_impact_peak"}
+}
+
+ZON4D handles the timeline.
+AP handles the reaction.
+
+
+---
+
+20.7 Scene/Track Conditions
+
+{when {type scene_start path "guard_confrontation"}}
+{when {type track_end path "audio.guard_vo"}}
+
+You can:
+
+Start a cutscene when a door opens
+
+Change music when a track ends
+
+Switch dialogue when visemes finish
+
+
+
+---
+
+20.8 Multi-Condition Rules (Implicit AND)
+
+AP v0.1 defaults to AND semantics:
+
+{ap_rule
+  {id "guard_freakout_start"}
+  {when {all [
+    {ap_condition {type curve_cross_up path "emotion.anger" value 0.6}}
+    {ap_condition {type event event_id "door_impact_peak"}}
+  ]}}
+  {then [
+    {ap_action {type signal arg0 "start_freakout"}}   
+  ]}
+}
+
+OR rules are written by defining multiple rules.
+
+We can formalize OR as any [...] in v0.2.
+
+
+---
+
+20.9 AP Rule Examples
+
+EX1 — Dialogue Escalation When Anger Threshold Crosses
+
+{ap_rule
+  {id "npc_escalate_dialogue"}
+  {when
+    {type curve_cross_up
+     path "npc.guard.emotion.anger"
+     value 0.7}}
+  {then [
+    {ap_action {type branch_dialogue arg0 "escalate"}}  
+  ]}
+}
+
+
+---
+
+EX2 — Camera Shake on Door Slam Peak
+
+{ap_rule
+  {id "door_slam_shake"}
+  {when {type event event_id "door_impact_peak"}}
+  {then [
+    {ap_action {type camera_shake arg0 0.4 arg1 0.1}}  
+  ]}
+}
+
+
+---
+
+EX3 — Flash Light During Beat 1.2s–2.0s
+
+{ap_rule
+  {id "flash_during_interval"}
+  {when {type interval t0 1.2 t1 2.0}}
+  {then [
+    {ap_action {type signal arg0 "light_flash"}}  
+  ]}
+}
+
+
+---
+
+EX4 — Start Battle Music at Scene Start
+
+{ap_rule
+  {id "start_battle_music"}
+  {when {type scene_start path "battlefield_intro"}}
+  {then [
+    {ap_action {type play_track arg0 "music.battle_theme"}}
+  ]}
+}
+
+
+---
+
+EX5 — When Emotion Drops Below 0.2, Calm Breathing Animation
+
+{ap_rule
+  {id "npc_calms"}
+  {when {type curve_cross_down path "npc.emotion.fear" value 0.2}}
+  {then [
+    {ap_action {type start_scene arg0 "npc_calming_breath"}}
+  ]}
+}
+
+
+---
+
+20.10 AP Hooks in Relation to ZON4D
+
+Contract Overview
+
+ZON4D provides:
+
+Curves: measurable values over time
+
+Keyframes: “real” modifier points
+
+Events: explicit semantic triggers
+
+Scenes/tracks: time containers
+
+Bindings: linking facial-motion-emotion-audio
+
+
+AP provides:
+
+Rules that observe ZON4D time
+
+Actions that manipulate the game world
+
+No math, no physics, no curves
+
+All reactions are purely declarative
+
+
+
+---
+
+20.11 Debounce & Cooldown Semantics
+
+This prevents rule spam:
+
+{cooldown 1.0}  ; cannot re-trigger for 1 second
+{debounce 0.2}  ; condition must remain true for 0.2s
+
+
+---
+
+20.12 Priority Semantics
+
+Rules with higher priority fire first:
+
+{priority 10}
+
+This resolves cases like:
+
+Two rules fighting over start/stop of the same scene
+
+Dialogue branching where multiple conditions are true
+
+Complex emotional state cascades
+
+
+
+---
+
+20.13 Summary of Section 20
+
+You now have:
+
+Formal AP condition types (events, curves, intervals, transitions)
+
+Semantic action verbs (signal, branch, spawn, camera_shake…)
+
+Binding logic between AP and ZON4D
+
+Threshold-crossing semantics
+
+Rule prioritization, cooldown, debounce
+
+Examples across audio, motion, facial, emotion
+
+
+This is the behavior layer your entire engine runs on.
+
+It’s the “brain stem” of EngAIn.
+ZW-H is the skeleton.
+ZON4D is the muscles and nerves.
+AP is the reflex + logic.
+
+
+---
+
+Next Section: 21 — Environment Curves (Light/Wind/Gravity/Weather)?
+
+Or do you want AP v1.0 Full Spec before moving on?

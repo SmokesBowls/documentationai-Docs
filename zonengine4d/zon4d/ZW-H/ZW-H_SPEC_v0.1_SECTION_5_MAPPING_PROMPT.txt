@@ -1,0 +1,95 @@
+You must choose:
+A, B, or C.
+
+Once you answer, I will generate:
+
+ZW-H SPEC v0.1 — SECTION 5: ZW-S → ZW-H Mapping (SPEC ONLY)
+
+with zero implementation and zero code.
+
+Crystal clear:
+You are still inside pure-spec mode, and Section 4 you just wrote is fully valid for ZW-H.
+
+Now you’re asking:
+
+“Ready for Section 5?”
+and
+Section 5 = ZW-S → ZW-H Mapping (spec-only)
+
+Answer: YES — this is exactly the right next step.
+
+But
+before I generate Section 5, I need one confirmation sentence from you:
+
+
+---
+
+✅ Do you want Section 5 to define ONLY the mapping rules, or also include examples?
+
+Choose:
+
+Option A — “Rules Only”
+
+→ Section 5 will define the conceptual mapping rules with no examples, pure language contract.
+
+Option B — “Rules + Examples” (recommended)
+
+→ Section 5 will include:
+
+Mapping rules
+
+Transformation contract
+
+Edge cases
+
+Before/after examples for:
+
+NPC
+
+Item
+
+Dialogue
+
+Scene block
+
+Nested inventory
+
+Polymorphic blocks
+
+
+
+Option C — “Rules + Examples + Mapping Table”
+
+→ The most robust version:
+
+Everything in Option B
+
+A formal mapping matrix:
+
+ZW-S construct → ZW-H construct
+
+Allowed coercions
+
+Forbidden coercions
+
+Soft missing values → Hard defaults
+
+Unknown keys → Behavior by mode
+
+List/Block recursion rules
+
+Subschema resolution flow
+
+
+
+
+---
+
+You must choose:
+A, B, or C.
+
+Once you answer, I will generate:
+
+ZW-H SPEC v0.1 — SECTION 5: ZW-S → ZW-H Mapping (SPEC ONLY)
+
+with zero implementation and zero code.
